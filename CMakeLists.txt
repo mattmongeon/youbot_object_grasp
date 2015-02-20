@@ -8,6 +8,10 @@ find_package(catkin REQUIRED COMPONENTS
   roscpp
   rospy
   std_msgs
+  pluginlib
+  moveit_core
+  urdf
+  tf_conversions
 )
 
 ## System dependencies are found with CMake's conventions
@@ -103,16 +107,16 @@ include_directories(
 # )
 
 ## Declare a cpp executable
-# add_executable(youbot_object_grasp_node src/youbot_object_grasp_node.cpp)
+add_executable(arm_control src/arm_control.cpp)
 
 ## Add cmake target dependencies of the executable/library
 ## as an example, message headers may need to be generated before nodes
 # add_dependencies(youbot_object_grasp_node youbot_object_grasp_generate_messages_cpp)
 
 ## Specify libraries to link a library or executable target against
-# target_link_libraries(youbot_object_grasp_node
-#   ${catkin_LIBRARIES}
-# )
+target_link_libraries(arm_control
+  ${catkin_LIBRARIES}
+)
 
 #############
 ## Install ##
