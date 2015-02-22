@@ -1,3 +1,0 @@
-<launch>
-	<node name="arm_control" pkg="youbot_object_grasp" type="arm_control"/>
-</launch>
