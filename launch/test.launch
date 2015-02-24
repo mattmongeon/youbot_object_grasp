@@ -14,6 +14,8 @@
   <!-- Given the published joint states, publish tf for the robot links -->
   <node name="robot_state_publisher" pkg="robot_state_publisher" type="robot_state_publisher" respawn="true" output="screen" />
 
+  <include file="$(find youbot_object_grasp)/launch/youbot_gazebo.launch"/>
+
   <!-- Run the main MoveIt executable without trajectory execution (we do not have controllers configured by default) -->
   <include file="$(find youbot_moveit)/launch/move_group.launch">
     <arg name="allow_trajectory_execution" value="true"/>  
