@@ -1,0 +1,37 @@
+<launch>
+
+  <arg name="gui" default="true" />
+
+  <include file="$(find gazebo_ros)/launch/empty_world.launch">
+    <arg name="world_name" value="$(find youbot_object_grasp)/worlds/empty_room.world"/>
+    <arg name="debug" value="false" />
+    <arg name="gui" value="$(arg gui)" />
+    <arg name="paused" value="false"/>
+    <arg name="use_sim_time" value="true"/>
+    <arg name="headless" value="false"/>
+  </include>
+
+  <arg name="ns" default="/youbot" />
+  <!-- specify prefix for tf transforms -->
+  <param name="tf_prefix" value="youbot" />
+
+  <!-- spawn general model for the youbot -->
+  <arg name="youbot_model" default="$(find youbot_description)/robots/youbot.urdf.xacro" />
+  <param name="youbot_description" command="$(find xacro)/xacro.py '$(arg youbot_model)'" />
+
+  <!-- spawn single robots-->
+  <group ns="$(arg ns)">
+    <param name="tf_prefix" value="youbot" />
+
+    <include file="$(find youbot_object_grasp)/launch/spawn_youbot.launch">
+      <arg name="name" value="$(arg ns)"/>
+      <arg name="pos_x" value="0.2"/>
+      <arg name="namespace_arg" value="$(arg ns)"/>
+    </include>
+  </group>
+
+  <!-- start tf publisher for laser scanner-->
+  <!-- TODO: should be replaced with a robot-wide tf publisher-->
+  <node name="tf_scanner" pkg="tf" type="static_transform_publisher" args="0.3 0 -0.03 0 0 0 youbot/base_link youbot/base_laser_front_link 40" />
+
+  </launch>
