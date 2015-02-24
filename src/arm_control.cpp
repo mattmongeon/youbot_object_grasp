@@ -3,6 +3,8 @@
 #include <ros/ros.h>
 #include <geometry_msgs/Pose.h>
 #include <std_msgs/Float64.h>
+#include <tf/LinearMath/Quaternion.h>
+#include <tf/LinearMath/Vector3.h>
 
 #include <iostream>
 
@@ -20,13 +22,29 @@ void driveArm()
 {
     pluginlib::ClassLoader<kinematics::KinematicsBase> loader("moveit_core", "kinematics::KinematicsBase");
     KinematicsBasePtr kinematics = loader.createInstance(PLUGIN);
-    kinematics->initialize("/robot_description", "arm_1", "arm_link_0", "arm_link_5", 0.1);
+	//kinematics->initialize("/robot_description", "arm_1", "base_link", "gripper_palm_link", 0.1);
+	kinematics->initialize("/robot_description", "arm_1", "arm_link_0", "arm_link_5", 0.1);
 
     geometry_msgs::Pose pose;
     std::vector<double> seed(5, 0.0);
     std::vector<double> solution;
     moveit_msgs::MoveItErrorCodes error_code;
 
+	// Figure out rotation matix, then use matrix logarithm to find the axis of
+	//     rotation and the magnitude.
+	// pose.quaternion = Quaternion(const Vector3& axis, const tfScalar& angle);
+
+	// Values from Jarvis's test file.  Requires URDF with virtual joints.
+	// pose.orientation.w = 0.601;
+	// pose.orientation.x = 0.591;
+	// pose.orientation.y = -0.372;
+	// pose.orientation.z = 0.388;
+	
+    // pose.position.x = 0.181;
+    // pose.position.y = 0.778;
+    // pose.position.z = 0.108;
+
+	// Candle position.
     pose.position.x = 0.057;
     pose.position.y = 0.0;
     pose.position.z = 0.535;
