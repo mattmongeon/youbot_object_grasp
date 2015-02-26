@@ -1,0 +1,6 @@
+To get the youBot in Gazebo and be able to control it:
+* roslaunch youbot_object_grasp test.launch
+* roslaunch youbot_control youbot_control.launch (from ~/youbot_tools_ws)
+
+To see the youBot in rviz and manipulate the joints:
+* roslaunch youbot_description youbot_rviz.launch (from ~/catkin_ws)
