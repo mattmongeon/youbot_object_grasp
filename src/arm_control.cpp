@@ -19,6 +19,8 @@ ros::Publisher armJoint3;
 ros::Publisher armJoint4;
 ros::Publisher armJoint5;
 
+ros::Subscriber sub;
+
 // Set up some joint angle values for seeding the ik solver when we need to start
 // grasping objects.
 double seedGraspForward[] = { 2.95, 2.04, -1.75, 2.64, 2.9 };
@@ -36,7 +38,7 @@ tf::Transform g_base_link_to_arm0;
 tf::Transform g_arm0_to_base_link;
 
 
-// --- Poses relative to arm_link_0 --- //
+// --- Poses of arm_link_5 relative to arm_link_0 --- //
 
 tf::Transform g_cameraSearch;
 double seedCameraSearch[] = { 2.93215, 0.25865, -0.84097, 2.52836, 2.92343 };
@@ -177,8 +179,62 @@ void driveArm()
 	{
 		std::cerr << "NO SOLUTION" << std::endl;
 	}
+}
 
+
+tf::Transform getBaseToBlockTransform(const geometry_msgs::Pose& pose)
+{
+	// Start off as base_link -> arm_link_0
+	tf::Transform g_baseToBlock = g_base_link_to_arm0;
+
+	// Now take it from base_link -> arm_link_5
+	g_baseToBlock *= g_cameraSearch;
+
+	// Now take it from base_link -> ASUS frame
+	g_baseToBlock *= g_A5ToAsus;
+
+	// Now turn the incoming pose to a transformation matrix.
+	tf::Quaternion q( pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w );
+	tf::Vector3 t( pose.position.x, pose.position.y, pose.position.z );
 	
+	tf::Transform g_AsusToBlock( q, t );
+
+	// Now take it the rest of the way from base_link -> block
+	g_baseToBlock *= g_AsusToBlock;
+
+	return g_baseToBlock;
+}
+
+
+void block_callback(const geometry_msgs::Pose& pose)
+{
+	std::cerr << "Received block pose!" << std::endl;
+	std::cerr << "Quaternion:" << std::endl;
+	std::cerr << "\tw: " << pose.orientation.w << std::endl;
+	std::cerr << "\tx: " << pose.orientation.x << std::endl;
+	std::cerr << "\ty: " << pose.orientation.y << std::endl;
+	std::cerr << "\tz: " << pose.orientation.z << std::endl;
+	std::cerr << std::endl;
+	std::cerr << "Position:" << std::endl;
+	std::cerr << "\tx: " << pose.position.x << std::endl;
+	std::cerr << "\ty: " << pose.position.y << std::endl;
+	std::cerr << "\tz: " << pose.position.z << std::endl;
+	std::cerr << std::endl;
+
+	// Build a transformation matrix
+	tf::Transform tf = getBaseToBlockTransform(pose);
+
+	tf::Matrix3x3 rot = tf.getBasis();
+	std::cerr << "Block pose relative to base frame" << std::endl;
+	tf::Vector3 row = rot.getRow(0);
+	std::cerr << "    | " << row.getX() << " " << row.getY() << " " << row.getZ() << " | " << std::endl;
+	row = rot.getRow(1);
+	std::cerr << "R = | " << row.getX() << " " << row.getY() << " " << row.getZ() << " | " << std::endl;
+	row = rot.getRow(2);
+	std::cerr << "    | " << row.getX() << " " << row.getY() << " " << row.getZ() << " | " << std::endl;
+	std::cerr << std::endl;
+	tf::Vector3 t = tf.getOrigin();
+	std::cerr << "t = < " << t.getX() << ", " << t.getY() << ", " << t.getZ() << " >" << std::endl;
 }
 
 
@@ -194,6 +250,9 @@ int main (int argc, char** argv)
 	armJoint4 = nh.advertise<std_msgs::Float64>( "/youbot/arm_joint_4_position_controller/command", 1 );
 	armJoint5 = nh.advertise<std_msgs::Float64>( "/youbot/arm_joint_5_position_controller/command", 1 );
 
+	std::cerr << "Creating subscriber for block pose." << std::endl;
+    sub = nh.subscribe ("/block_pose", 1, block_callback);
+	
 	std::cerr << "Waiting 5 seconds to allow everything to start up." << std::endl;
 	for( int i = 5; i > 0; --i )
 	{
