@@ -3,8 +3,10 @@
 #include <ros/ros.h>
 #include <geometry_msgs/Pose.h>
 #include <std_msgs/Float64.h>
+#include <tf/LinearMath/Transform.h>
 #include <tf/LinearMath/Quaternion.h>
 #include <tf/LinearMath/Vector3.h>
+#include <tf/LinearMath/Matrix3x3.h>
 
 #include <iostream>
 
@@ -25,6 +27,72 @@ double seedGraspRight45Deg[] = { 3.76, 2.04, -1.75, 2.64, 2.9 };
 double seedGraspLeft90Deg[] = { 1.37, 2.04, -1.75, 2.64, 2.9 };
 double seedGraspLeft45Deg[] = { 2.16, 2.04, -1.75, 2.64, 2.9 };
 
+// --- Helper transformation matrices --- //
+
+// These define some transformations between various links and parts of the robot.
+tf::Transform g_A5ToAsus;
+tf::Transform g_AsusToA5;
+tf::Transform g_base_link_to_arm0;
+tf::Transform g_arm0_to_base_link;
+
+
+// --- Poses relative to arm_link_0 --- //
+
+tf::Transform g_cameraSearch;
+double seedCameraSearch[] = { 2.93215, 0.25865, -0.84097, 2.52836, 2.92343 };
+
+
+void initialize()
+{
+	tf::Matrix3x3 rot;
+	tf::Vector3 t;
+	
+	// --- arm_link_5 to ASUS center --- //
+	
+	rot.setValue(0.0, -1.0, 0.0,
+				 1.0, 0.0, 0.0,
+				 0.0, 0.0, 1.0);
+	t.setValue(0.088, 0.0, 0.22);
+		
+	g_A5ToAsus.setBasis(rot);
+	g_A5ToAsus.setOrigin(t);
+
+
+	// --- ASUS center to arm_link_5 --- //
+		
+	g_AsusToA5 = g_A5ToAsus.inverse();
+
+
+	// --- base_link to arm_link_0 --- //
+
+	rot.setValue( 1.0, 0.0, 0.0,
+				  0.0, 1.0, 0.0,
+				  0.0, 0.0, 1.0 );
+	t.setValue( 0.143, 0.0, 0.046 );
+		
+	g_base_link_to_arm0.setBasis(rot);
+	g_base_link_to_arm0.setOrigin(t);
+
+
+	// --- arm_link_0 to base_link --- //
+	
+	g_arm0_to_base_link = g_base_link_to_arm0.inverse();
+
+	// --- Define the Camera Search pose --- //
+
+	// This goes from base_link to arm_link_5
+	rot.setValue( 0.0, 0.0, 1.0,
+				  0.0, 1.0, 0.0,
+				  -1.0, 0.0, 0.0 );
+	t.setValue( 0.310676, 0.00250788, 0.351227 );
+	
+	g_cameraSearch.setBasis(rot);
+	g_cameraSearch.setOrigin(t);
+
+	// Now we will use the arm_link_0 -> base_link transformation matrix
+	// to get the camera search transformation to be from arm_link_0 to 5.
+	g_cameraSearch = g_arm0_to_base_link * g_cameraSearch;
+}
 
 void driveArm()
 {
@@ -33,13 +101,13 @@ void driveArm()
 	kinematics->initialize("/robot_description", "arm_1", "arm_link_0", "arm_link_5", 0.1);
 
     geometry_msgs::Pose pose;
-    std::vector<double> seed(5, 0.0);
-	// std::vector<double> seed;
-	// seed.push_back(1.52);
-	// seed.push_back(1.84);
-	// seed.push_back(-1.26);
-	// seed.push_back(2.4);
-	// seed.push_back(3.10);
+    // std::vector<double> seed(5, 0.0);
+	std::vector<double> seed;
+	seed.push_back(seedCameraSearch[0]);
+	seed.push_back(seedCameraSearch[1]);
+	seed.push_back(seedCameraSearch[2]);
+	seed.push_back(seedCameraSearch[3]);
+	seed.push_back(seedCameraSearch[4]);
     std::vector<double> solution;
     moveit_msgs::MoveItErrorCodes error_code;
 
@@ -58,9 +126,23 @@ void driveArm()
     // pose.position.z = 0.108;
 
 	// Candle position.
-    pose.position.x = 0.057;
-    pose.position.y = 0.0;
-    pose.position.z = 0.535;
+    // pose.position.x = 0.057;
+    // pose.position.y = 0.0;
+    // pose.position.z = 0.535;
+
+	// Camera Search position.
+	const tf::Vector3& position = g_cameraSearch.getOrigin();
+	pose.position.x = position.getX();
+	pose.position.y = position.getY();
+	pose.position.z = position.getZ();
+
+	const tf::Matrix3x3& rot = g_cameraSearch.getBasis();
+	tf::Quaternion q;
+	rot.getRotation( q );
+	pose.orientation.w = q.getW();
+	pose.orientation.x = q.getX();
+	pose.orientation.y = q.getY();
+	pose.orientation.z = q.getZ();
 
     if( kinematics->getPositionIK(pose, seed, solution, error_code) )
 	{
@@ -119,6 +201,9 @@ int main (int argc, char** argv)
 		ros::Duration(1).sleep();
 	}
 
+	std::cerr << "Initializing matrices and other things." << std::endl;
+	initialize();
+	
 	std::cerr << "Driving arm." << std::endl;
 	driveArm();
 	ros::spin();
