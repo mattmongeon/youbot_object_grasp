@@ -33,13 +33,13 @@ void driveArm()
 	kinematics->initialize("/robot_description", "arm_1", "arm_link_0", "arm_link_5", 0.1);
 
     geometry_msgs::Pose pose;
-    // std::vector<double> seed(5, 0.0);
-	std::vector<double> seed;
-	seed.push_back(1.52);
-	seed.push_back(1.84);
-	seed.push_back(-1.26);
-	seed.push_back(2.4);
-	seed.push_back(3.10);
+    std::vector<double> seed(5, 0.0);
+	// std::vector<double> seed;
+	// seed.push_back(1.52);
+	// seed.push_back(1.84);
+	// seed.push_back(-1.26);
+	// seed.push_back(2.4);
+	// seed.push_back(3.10);
     std::vector<double> solution;
     moveit_msgs::MoveItErrorCodes error_code;
 
@@ -48,19 +48,19 @@ void driveArm()
 	// pose.quaternion = Quaternion(const Vector3& axis, const tfScalar& angle);
 
 	// Values from Jarvis's test file.  Requires URDF with virtual joints.
-	pose.orientation.w = 0.601;
-	pose.orientation.x = 0.591;
-	pose.orientation.y = -0.372;
-	pose.orientation.z = 0.388;
+	// pose.orientation.w = 0.601;
+	// pose.orientation.x = 0.591;
+	// pose.orientation.y = -0.372;
+	// pose.orientation.z = 0.388;
 
-    pose.position.x = 0.181;
-    pose.position.y = 0.778;
-    pose.position.z = 0.108;
+    // pose.position.x = 0.181;
+    // pose.position.y = 0.778;
+    // pose.position.z = 0.108;
 
 	// Candle position.
-    // pose.position.x = 0.057;
-    // pose.position.y = 0.0;
-    // pose.position.z = 0.535;
+    pose.position.x = 0.057;
+    pose.position.y = 0.0;
+    pose.position.z = 0.535;
 
     if( kinematics->getPositionIK(pose, seed, solution, error_code) )
 	{
