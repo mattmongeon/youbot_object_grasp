@@ -4,3 +4,16 @@ To get the youBot in Gazebo and be able to control it:
 
 To see the youBot in rviz and manipulate the joints:
 * roslaunch youbot_description youbot_rviz.launch (from ~/catkin_ws)
+
+Next Steps:
+----------
+- Test MoveIt code on the youBot
+  * Put the MoveIt code on the youBot and make sure it can control the arm to the candle position, etc.
+- Complete the set of pre-programmed arm angles
+  * Need a starting position for above the block for grasping.
+
+Questions:
+---------
+- Is there a way to use MoveIt to specify only a position and don't care about the orientation?
+- Is there a way to use MoveIt to specify a particular position and a suggested orientation and allow it to give me the closest orientation even if it is far off?
+  * I want to specify a definite position and then say that I would really like to have a particular orientation but even if it ends up being far off, oh well, just give me the closest orientation.
