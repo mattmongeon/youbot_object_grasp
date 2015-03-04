@@ -12,6 +12,8 @@ To get the eband_local_planner to work in ROS Indigo (not necessary with ROS Hyd
   	o <build_depend>cmake_modules</build_depend>
 	o <run_depend>cmake_modules</run_depend>
 
+The map being used is currently the map with four walls that is used in Gazebo.  This provides a nice empty space with no obstacles and still lets me fully use navstack.
+
 Next Steps:
 ----------
 - Test MoveIt code on the youBot
