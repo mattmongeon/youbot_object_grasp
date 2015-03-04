@@ -10,8 +10,8 @@ void odom_callback( const nav_msgs::Odometry& odom)
 {
 	geometry_msgs::TransformStamped odom_trans;
 	odom_trans.header.stamp = ros::Time::now();
-	odom_trans.header.frame_id = "odom";
-	odom_trans.child_frame_id = "base_link";
+	odom_trans.header.frame_id = "/youbot/odom";
+	odom_trans.child_frame_id = "/youbot/base_footprint";
 
 	odom_trans.transform.translation.x = odom.pose.pose.position.x;
 	odom_trans.transform.translation.y = odom.pose.pose.position.y;
@@ -20,8 +20,6 @@ void odom_callback( const nav_msgs::Odometry& odom)
 	odom_trans.transform.rotation = odom.pose.pose.orientation;
 
 	odom_broadcaster->sendTransform(odom_trans);
-
-	// MORE TO DO??
 }
 
 

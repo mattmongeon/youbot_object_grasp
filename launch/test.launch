@@ -77,23 +77,19 @@
 	<remap from="/odom" to="/youbot/odom"/>
   </node>
 
+  <node pkg="map_server" type="map_server" name="map_server" args="$(find youbot_object_grasp)/worlds/EmptyRoom/occupancy/map.yaml"/>
+
 
   <!-- /////////////////////// -->
-  <!--      Hokuyo laser       -->
+  <!--       Laser Data        -->
   <!-- /////////////////////// -->
 
-  <!--
-  <arg name="port" default="/dev/ttyACM0" />
-
-  <node pkg="hokuyo_node" type="hokuyo_node" name="laser_driver_node" >
-    <param name="max_ang" value="1.57" />
-    <param name="min_ang" value="-1.57" />
-    <param name="port" value="$(arg port)" />
+  <!-- Works with the laser data coming from Gazebo -->
+  <node pkg="amcl" type="amcl" name="amcl" args="scan:=/youbot/scan_front" output="screen">
+	<param name="odom_frame_id" value="/youbot/odom"/>
+	<param name="base_frame_id" value="/youbot/base_link"/>
+	<param name="global_frame_id" value="map"/>
+	<param name="odom_model_type" value="omni"/>
   </node>
-
-  <node pkg="amcl" type="amcl" name="amcl" output="screen">
-  	<param name="base_frame_id" value="base_footprint" />
-  </node>
-  -->
 
 </launch>

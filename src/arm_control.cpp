@@ -2,6 +2,10 @@
 #include <pluginlib/class_loader.h>
 #include <ros/ros.h>
 #include <geometry_msgs/Pose.h>
+#include <geometry_msgs/Twist.h>
+#include <nav_msgs/Odometry.h>
+#include <move_base_msgs/MoveBaseAction.h>
+#include <actionlib/client/simple_action_client.h>
 #include <std_msgs/Float64.h>
 #include <tf/LinearMath/Transform.h>
 #include <tf/LinearMath/Quaternion.h>
@@ -11,6 +15,8 @@
 #include <iostream>
 
 
+// --- ROS Stuff --- //
+
 const std::string PLUGIN = "youbot_arm_kinematics_moveit::KinematicsPlugin";
 typedef boost::shared_ptr<kinematics::KinematicsBase> KinematicsBasePtr;
 ros::Publisher armJoint1;
@@ -18,8 +24,9 @@ ros::Publisher armJoint2;
 ros::Publisher armJoint3;
 ros::Publisher armJoint4;
 ros::Publisher armJoint5;
+ros::Publisher baseVelPub;
 
-ros::Subscriber sub;
+ros::Subscriber blockPoseSub;
 
 // Set up some joint angle values for seeding the ik solver when we need to start
 // grasping objects.
@@ -42,6 +49,40 @@ tf::Transform g_arm0_to_base_link;
 
 tf::Transform g_cameraSearch;
 double seedCameraSearch[] = { 2.93215, 0.25865, -0.84097, 2.52836, 2.92343 };
+
+
+// --- Target Position --- //
+
+double targetX_m = 0.0;
+double targetY_m = 0.0;
+bool targetSet = false;
+
+
+// --- Nav Stuff --- //
+
+typedef actionlib::SimpleActionClient<move_base_msgs::MoveBaseAction> MoveBaseClient;
+move_base_msgs::MoveBaseGoal goal;
+
+ros::Publisher moveBaseGoalPub;
+
+
+// --- Controller Values --- //
+
+// LOOK AT THE STUFF JI-HOON DID BEFORE DOING MUCH MORE WORK ON THIS!!!
+
+double maxVelocity = 0.1;
+double kp_x = 0.0;
+double ki_x = 0.0;
+double kd_x = 0.0;
+
+double kp_y = 0.0;
+double ki_y = 0.0;
+double kd_y = 0.0;
+
+double errorInt = 0.0;
+double prevError = 0.0;
+
+double positionTolerance_m = 0.01;
 
 
 void initialize()
@@ -112,20 +153,6 @@ void driveArm()
 	seed.push_back(seedCameraSearch[4]);
     std::vector<double> solution;
     moveit_msgs::MoveItErrorCodes error_code;
-
-	// Figure out rotation matix, then use matrix logarithm to find the axis of
-	//     rotation and the magnitude.
-	// pose.quaternion = Quaternion(const Vector3& axis, const tfScalar& angle);
-
-	// Values from Jarvis's test file.  Requires URDF with virtual joints.
-	// pose.orientation.w = 0.601;
-	// pose.orientation.x = 0.591;
-	// pose.orientation.y = -0.372;
-	// pose.orientation.z = 0.388;
-
-    // pose.position.x = 0.181;
-    // pose.position.y = 0.778;
-    // pose.position.z = 0.108;
 
 	// Candle position.
     // pose.position.x = 0.057;
@@ -235,6 +262,44 @@ void block_callback(const geometry_msgs::Pose& pose)
 	std::cerr << std::endl;
 	tf::Vector3 t = tf.getOrigin();
 	std::cerr << "t = < " << t.getX() << ", " << t.getY() << ", " << t.getZ() << " >" << std::endl;
+
+	
+	// Set a new target position for the robot based on the position of the block relative to the base.
+	// goal.target_pose.header.frame_id = "base_link";
+	// goal.target_pose.header.stamp = ros::Time::now();
+
+	// goal.target_pose.pose.position.x = t.getX();
+	// goal.target_pose.pose.position.y = t.getY() + 0.5;
+	// goal.target_pose.pose.orientation.w = 1.0;
+
+
+	// std::cout << "Creating MoveBaseClient" << std::endl;
+	// MoveBaseClient ac("move_base", true);
+
+	// while(!ac.waitForServer(ros::Duration(5.0)))
+	// {
+	// 	ROS_INFO("Waiting for the move_base action server to come up...");
+	// }
+	// ROS_INFO("Found action server!");
+	// std::cout << "Sending goal" << std::endl;
+	// ac.sendGoal(goal);
+	// ac.waitForResult();
+
+	// if( ac.getState() == actionlib::SimpleClientGoalState::SUCCEEDED)
+	// 	ROS_INFO("Hooray, the base moved");
+	// else
+	// 	ROS_INFO("The base failed to move for some reason");
+
+	std::cerr << "Preparing to publish move goal." << std::endl;
+	geometry_msgs::PoseStamped goalPose;
+	goalPose.header.stamp = ros::Time::now();
+	goalPose.header.frame_id = "map";
+	goalPose.pose.position.x = t.getX();
+	goalPose.pose.position.y = t.getY();
+	goalPose.pose.orientation.w = 1.0;
+
+	std::cerr << "Publishing to /move_base_goal/simple" << std::endl;
+	moveBaseGoalPub.publish(goalPose);
 }
 
 
@@ -250,8 +315,14 @@ int main (int argc, char** argv)
 	armJoint4 = nh.advertise<std_msgs::Float64>( "/youbot/arm_joint_4_position_controller/command", 1 );
 	armJoint5 = nh.advertise<std_msgs::Float64>( "/youbot/arm_joint_5_position_controller/command", 1 );
 
-	std::cerr << "Creating subscriber for block pose." << std::endl;
-    sub = nh.subscribe ("/block_pose", 1, block_callback);
+	baseVelPub = nh.advertise<geometry_msgs::Twist>( "/youbot/cmd_vel", 1 );
+
+	moveBaseGoalPub = nh.advertise<geometry_msgs::PoseStamped>("/move_base_simple/goal", 5, true);
+	
+	
+	std::cerr << "Creating subscribers." << std::endl;
+    blockPoseSub = nh.subscribe ("/block_pose", 1, block_callback);
+	
 	
 	std::cerr << "Waiting 5 seconds to allow everything to start up." << std::endl;
 	for( int i = 5; i > 0; --i )
@@ -265,6 +336,9 @@ int main (int argc, char** argv)
 	
 	std::cerr << "Driving arm." << std::endl;
 	driveArm();
+
+	std::cerr << "Sending navigation goals." << std::endl;
+	
 	ros::spin();
 	return 0;
 }
