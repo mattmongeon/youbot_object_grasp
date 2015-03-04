@@ -5,6 +5,13 @@ To get the youBot in Gazebo and be able to control it:
 To see the youBot in rviz and manipulate the joints:
 * roslaunch youbot_description youbot_rviz.launch (from ~/catkin_ws)
 
+To get the eband_local_planner to work in ROS Indigo (not necessary with ROS Hydro, specifically on youBot):
+* Clone the package eband_local_planner from https://github.com/utexas-bwi/eband_local_planner.git
+  - Modify CMakeLists.txt to add the line:  find_package(cmake_modules REQUIRED)
+  - Modify package.xml to add:  
+  	o <build_depend>cmake_modules</build_depend>
+	o <run_depend>cmake_modules</run_depend>
+
 Next Steps:
 ----------
 - Test MoveIt code on the youBot
