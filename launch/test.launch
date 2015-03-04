@@ -1,12 +1,19 @@
 <launch>
 
+  <!-- /////////////////////// -->
+  <!--        Parameters       -->
+  <!-- /////////////////////// -->
+
   <!-- By default, we do not start a database (it can be large) -->
   <arg name="db" default="false" />
 
   <!-- By default, we are not in debug mode -->
   <arg name="debug" default="false" />
 
-  <!-- If needed, broadcast static tf for robot root -->
+
+  <!-- /////////////////////// -->
+  <!--     State Publishers    -->
+  <!-- /////////////////////// -->
 
   <!-- We do not have a robot connected, so publish fake joint states -->
   <node name="joint_state_publisher" pkg="joint_state_publisher" type="joint_state_publisher"/>
@@ -14,7 +21,17 @@
   <!-- Given the published joint states, publish tf for the robot links -->
   <node name="robot_state_publisher" pkg="robot_state_publisher" type="robot_state_publisher" respawn="true" output="screen" />
 
+
+  <!-- /////////////////////// -->
+  <!--          Gazebo         -->
+  <!-- /////////////////////// -->
+
   <include file="$(find youbot_object_grasp)/launch/youbot_gazebo.launch"/>
+
+
+  <!-- /////////////////////// -->
+  <!--         MoveIt!         -->
+  <!-- /////////////////////// -->
 
   <!-- Run the main MoveIt executable without trajectory execution (we do not have controllers configured by default) -->
   <include file="$(find youbot_moveit)/launch/move_group.launch">
@@ -24,6 +41,59 @@
     <arg name="debug" value="$(arg debug)"/>
   </include>
 
-  <node name="arm_control" pkg="youbot_object_grasp" type="arm_control"/>
+
+  <!-- /////////////////////// -->
+  <!--       Arm Control       -->
+  <!-- /////////////////////// -->
+
+  <node name="arm_control" pkg="youbot_object_grasp" type="arm_control" output="screen"/>
+
+
+  <!-- /////////////////////// -->
+  <!--   Object Segmentation   -->
+  <!-- /////////////////////// -->
+
+  <include file="$(find pcl_auto_seg)/launch/pcl_tut_temp_align.launch"/>
+
+
+  <!-- /////////////////////// -->
+  <!--        navstack         -->
+  <!-- /////////////////////// -->
+
+  <node pkg="move_base" type="move_base" respawn="false" name="move_base" output="screen">
+	<param name="base_global_planner" value="navfn/NavfnROS"/>
+	<rosparam file="$(find youbot_object_grasp)/config/global_costmap_params.yaml" command="load" ns="global_costmap"/>
+	<rosparam file="$(find youbot_object_grasp)/config/costmap_params.yaml" command="load" ns="local_costmap"/>
+	<rosparam file="$(find youbot_object_grasp)/config/move_base_params.yaml" command="load"/>
+	<rosparam file="$(find youbot_object_grasp)/config/eband_planner_params.yaml" command="load"/>
+
+	<param name="base_local_planner" value="eband_local_planner/EBandPlannerROS"/>
+
+	<remap from="cmd_vel" to="/youbot/cmd_vel"/>
+	<remap from="odom" to="/youbot/odom"/>
+  </node>
+
+  <node name="odom_tf_pub" pkg="youbot_object_grasp" type="odom_tf_pub" output="screen">
+	<remap from="/odom" to="/youbot/odom"/>
+  </node>
+
+
+  <!-- /////////////////////// -->
+  <!--      Hokuyo laser       -->
+  <!-- /////////////////////// -->
+
+  <!--
+  <arg name="port" default="/dev/ttyACM0" />
+
+  <node pkg="hokuyo_node" type="hokuyo_node" name="laser_driver_node" >
+    <param name="max_ang" value="1.57" />
+    <param name="min_ang" value="-1.57" />
+    <param name="port" value="$(arg port)" />
+  </node>
+
+  <node pkg="amcl" type="amcl" name="amcl" output="screen">
+  	<param name="base_frame_id" value="base_footprint" />
+  </node>
+  -->
 
 </launch>
