@@ -8,6 +8,7 @@ find_package(catkin REQUIRED COMPONENTS
   roscpp
   rospy
   std_msgs
+  nav_msgs
   pluginlib
   moveit_core
   urdf
@@ -108,6 +109,7 @@ include_directories(
 
 ## Declare a cpp executable
 add_executable(arm_control src/arm_control.cpp)
+add_executable(odom_tf_pub src/odom_tf_pub.cpp)
 
 ## Add cmake target dependencies of the executable/library
 ## as an example, message headers may need to be generated before nodes
@@ -115,6 +117,10 @@ add_executable(arm_control src/arm_control.cpp)
 
 ## Specify libraries to link a library or executable target against
 target_link_libraries(arm_control
+  ${catkin_LIBRARIES}
+)
+
+target_link_libraries(odom_tf_pub
   ${catkin_LIBRARIES}
 )
 
