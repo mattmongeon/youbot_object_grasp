@@ -6,7 +6,7 @@
 
 tf::TransformBroadcaster* odom_broadcaster;
 
-void odom_callback( const nav_msgs::Odometry& odom)
+void odom_callback( const nav_msgs::Odometry& odom )
 {
 	geometry_msgs::TransformStamped odom_trans;
 	odom_trans.header.stamp = ros::Time::now();
@@ -25,9 +25,7 @@ void odom_callback( const nav_msgs::Odometry& odom)
 
 int main( int argc, char** argv )
 {
-	std::cerr << "odom_tf_pub:  ABOUT TO CALL ros::init()" << std::endl;
 	ros::init(argc, argv, "odom_tf_pub");
-	std::cerr << "odom_tf_pub:  Called ros::init(), creating NodeHandle." << std::endl;
 	ros::NodeHandle nh;
 
 	odom_broadcaster = new tf::TransformBroadcaster();
