@@ -11,6 +11,7 @@
 #include <tf/LinearMath/Quaternion.h>
 #include <tf/LinearMath/Vector3.h>
 #include <tf/LinearMath/Matrix3x3.h>
+#include <boost/thread/mutex.hpp>
 
 #include <iostream>
 
@@ -27,6 +28,7 @@ ros::Publisher armJoint5;
 ros::Publisher baseVelPub;
 
 ros::Subscriber blockPoseSub;
+ros::Subscriber odomSub;
 
 // Set up some joint angle values for seeding the ik solver when we need to start
 // grasping objects.
@@ -65,6 +67,8 @@ move_base_msgs::MoveBaseGoal goal;
 
 ros::Publisher moveBaseGoalPub;
 
+nav_msgs::Odometry currentOdom;
+
 
 // --- Controller Values --- //
 
@@ -83,6 +87,11 @@ double errorInt = 0.0;
 double prevError = 0.0;
 
 double positionTolerance_m = 0.01;
+
+
+// --- Synchronization --- //
+
+boost::recursive_mutex odomMutex;
 
 
 void initialize()
@@ -294,14 +303,28 @@ void block_callback(const geometry_msgs::Pose& pose)
 	geometry_msgs::PoseStamped goalPose;
 	goalPose.header.stamp = ros::Time::now();
 	goalPose.header.frame_id = "map";
-	goalPose.pose.position.x = t.getX();
-	goalPose.pose.position.y = t.getY();
+
+	double odomX = 0.0;
+	double odomY = 0.0;
+	odomMutex.lock();
+	odomX = currentOdom.pose.pose.position.x;
+	odomY = currentOdom.pose.pose.position.y;
+	odomMutex.unlock();
+	
+	goalPose.pose.position.x = t.getX() + odomX;
+	goalPose.pose.position.y = t.getY() + odomY;
 	goalPose.pose.orientation.w = 1.0;
 
 	std::cerr << "Publishing to /move_base_goal/simple" << std::endl;
 	moveBaseGoalPub.publish(goalPose);
 }
 
+void odom_callback(const nav_msgs::Odometry& odom)
+{
+	odomMutex.lock();
+	currentOdom = odom;
+	odomMutex.unlock();
+}
 
 int main (int argc, char** argv)
 {
@@ -321,7 +344,8 @@ int main (int argc, char** argv)
 	
 	
 	std::cerr << "Creating subscribers." << std::endl;
-    blockPoseSub = nh.subscribe ("/block_pose", 1, block_callback);
+    blockPoseSub = nh.subscribe( "/block_pose", 1, block_callback );
+	odomSub = nh.subscribe( "/youbot/odom", 1, odom_callback );
 	
 	
 	std::cerr << "Waiting 5 seconds to allow everything to start up." << std::endl;
