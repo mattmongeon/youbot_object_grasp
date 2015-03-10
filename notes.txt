@@ -2,8 +2,11 @@ To get the youBot in Gazebo and be able to control it:
 * roslaunch youbot_object_grasp test.launch
 * roslaunch youbot_control youbot_control.launch (from ~/youbot_tools_ws)
 
-To see the youBot in rviz and manipulate the joints:
+To see the youBot in rviz and manipulate the joints with sliders:
 * roslaunch youbot_description youbot_rviz.launch (from ~/catkin_ws)
+
+To see the youBot in rviz and manipulate the joints with interactive markers:
+* roslaunch youbot_moveit demo.launch (from ~/winter_ws)
 
 To get the eband_local_planner to work in ROS Indigo (not necessary with ROS Hydro, specifically on youBot):
 * Clone the package eband_local_planner from https://github.com/utexas-bwi/eband_local_planner.git
@@ -13,6 +16,8 @@ To get the eband_local_planner to work in ROS Indigo (not necessary with ROS Hyd
 	o <run_depend>cmake_modules</run_depend>
 
 The map being used is currently the map with four walls that is used in Gazebo.  This provides a nice empty space with no obstacles and still lets me fully use navstack.
+
+Maybe try getting rid of the need for using eband_local_planner and just go with the default planner.  The only reason I am using it is because it was used on a project I copy/pasted.
 
 Next Steps:
 ----------
@@ -26,3 +31,36 @@ Questions:
 - Is there a way to use MoveIt to specify only a position and don't care about the orientation?
 - Is there a way to use MoveIt to specify a particular position and a suggested orientation and allow it to give me the closest orientation even if it is far off?
   * I want to specify a definite position and then say that I would really like to have a particular orientation but even if it ends up being far off, oh well, just give me the closest orientation.
+
+From meeting:
+------------
+High weight on position, high weight on two of orientations, low weight on final orientation
+Weighted velocity controller, similar to the damped least squares of last quarter, but that weighted them all evenly - should work a lot of the time if the position relative to the base is correct
+Or could use my "scripted" method - setting the arm in "search" position, adjust the base, adjust yaw of gripper, move arm down to grasp
+
+For target location picking:
+---------------------------
+- position = /youbot/odom + block_pose
+  * Subscribe to odom and use that in arm_control.cpp before publishing a position.
+  * Wrap the odom data inside a mutex
+
+For navstack:
+------------
+- Try getting rid of all of the maps and just be able to use move_base to define goals and let it control things.  Would like to avoid needing the laser...
+
+How target positioning works:
+----------------------------
+- Object is found in camera using PCL
+- Transform from camera to object is returned by PCL
+- Transform from camera to object is published by the node handling segmentation.
+- Base control node picks up the published transform.
+- Base control node uses tf to figure out where the block is relative to the base.
+- Base control node subscribes to /youbot/odom to get odometry data relative to map frame.
+- Base control node uses adds odom (x,y) data to the block's (x,y) tf to get map coords.
+- Base control node publishes a goal to move_base_simple/goal.
+
+How navstack stuff works:
+------------------------
+- move_base handles actually moving the youBot.
+- odom_tf_pub node generates a transform between odom and base_link frames.
+- amcl node maintains the transform between odom and map frames and updates positioning every now and then.
