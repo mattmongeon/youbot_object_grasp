@@ -6,6 +6,7 @@
 #include <nav_msgs/Odometry.h>
 #include <move_base_msgs/MoveBaseAction.h>
 #include <actionlib/client/simple_action_client.h>
+#include <actionlib_msgs/GoalStatusArray.h>
 #include <std_msgs/Float64.h>
 #include <tf/LinearMath/Transform.h>
 #include <tf/LinearMath/Quaternion.h>
@@ -14,6 +15,7 @@
 #include <boost/thread/mutex.hpp>
 
 #include <iostream>
+#include <vector>
 
 
 // --- ROS Stuff --- //
@@ -29,14 +31,16 @@ ros::Publisher baseVelPub;
 
 ros::Subscriber blockPoseSub;
 ros::Subscriber odomSub;
+ros::Subscriber moveBaseGoalStatusSub;
 
 // Set up some joint angle values for seeding the ik solver when we need to start
 // grasping objects.
-double seedGraspForward[] = { 2.95, 2.04, -1.75, 2.64, 2.9 };
-double seedGraspRight90Deg[] = { 4.56, 2.04, -1.75, 2.64, 2.9 };
-double seedGraspRight45Deg[] = { 3.76, 2.04, -1.75, 2.64, 2.9 };
-double seedGraspLeft90Deg[] = { 1.37, 2.04, -1.75, 2.64, 2.9 };
-double seedGraspLeft45Deg[] = { 2.16, 2.04, -1.75, 2.64, 2.9 };
+double seedGraspForward[] = { 2.95, 1.79738, -1.94584, 3.53938, 2.93883 };
+double seedGraspRight90Deg[] = { 4.56, 1.79738, -1.94584, 3.53938, 2.93883 };
+double seedGraspRight45Deg[] = { 3.76, 1.79738, -1.94584, 3.53938, 2.93883 };
+double seedGraspLeft90Deg[] = { 1.37, 1.79738, -1.94584, 3.53938, 2.93883 };
+double seedGraspLeft45Deg[] = { 2.16, 1.79738, -1.94584, 3.53938, 2.93883 };
+
 
 // --- Helper transformation matrices --- //
 
@@ -72,21 +76,26 @@ nav_msgs::Odometry currentOdom;
 
 // --- Controller Values --- //
 
-// LOOK AT THE STUFF JI-HOON DID BEFORE DOING MUCH MORE WORK ON THIS!!!
+enum ProcessState
+{
+	Initializing,
+	WaitingForBlock,
+	NavigatingToBlock,
+	MovingArmToSearchPose,
+	AligningToBlock,
+	GraspingBlock,
+	PuttingArmInCarryPose,
+	ReturningBlock,
+	Finished
+};
 
-double maxVelocity = 0.1;
-double kp_x = 0.0;
-double ki_x = 0.0;
-double kd_x = 0.0;
+ProcessState currentState = Initializing;
 
-double kp_y = 0.0;
-double ki_y = 0.0;
-double kd_y = 0.0;
+bool blockFound = false;
 
-double errorInt = 0.0;
-double prevError = 0.0;
+tf::Transform g_baseToBlock;
 
-double positionTolerance_m = 0.01;
+int navGoalStatus = 0;
 
 
 // --- Synchronization --- //
@@ -146,20 +155,46 @@ void initialize()
 	g_cameraSearch = g_arm0_to_base_link * g_cameraSearch;
 }
 
-void driveArm()
-{
-    pluginlib::ClassLoader<kinematics::KinematicsBase> loader("moveit_core", "kinematics::KinematicsBase");
-    KinematicsBasePtr kinematics = loader.createInstance(PLUGIN);
-	kinematics->initialize("/robot_description", "arm_1", "arm_link_0", "arm_link_5", 0.1);
 
-    geometry_msgs::Pose pose;
-    // std::vector<double> seed(5, 0.0);
+void positionArm_fk(const std::vector<double>& angles)
+{
+	std::cerr << "Publishing joint angles:" << std::endl;
+	std_msgs::Float64 v0;
+	std::cerr << "\tJoint 1:  " << angles[0] << std::endl;
+	v0.data = angles[0];
+	armJoint1.publish(v0);
+
+	std_msgs::Float64 v1;
+	std::cerr << "\tJoint 2:  " << angles[1] << std::endl;
+	v1.data = angles[1];
+	armJoint2.publish(v1);
+
+	std_msgs::Float64 v2;
+	std::cerr << "\tJoint 3:  " << angles[2] << std::endl;
+	v2.data = angles[2];
+	armJoint3.publish(v2);
+
+	std_msgs::Float64 v3;
+	std::cerr << "\tJoint 4:  " << angles[3] << std::endl;
+	v3.data = angles[3];
+	armJoint4.publish(v3);
+
+	std_msgs::Float64 v4;
+	std::cerr << "\tJoint 5:  " << angles[4] << std::endl;
+	v4.data = angles[4];
+	armJoint5.publish(v4);
+	std::cerr << std::endl;
+}
+
+
+void positionArm_ik(KinematicsBasePtr kinematics, const tf::Transform& g, double* seedVals)
+{
 	std::vector<double> seed;
-	seed.push_back(seedCameraSearch[0]);
-	seed.push_back(seedCameraSearch[1]);
-	seed.push_back(seedCameraSearch[2]);
-	seed.push_back(seedCameraSearch[3]);
-	seed.push_back(seedCameraSearch[4]);
+	seed.push_back(seedVals[0]);
+	seed.push_back(seedVals[1]);
+	seed.push_back(seedVals[2]);
+	seed.push_back(seedVals[3]);
+	seed.push_back(seedVals[4]);
     std::vector<double> solution;
     moveit_msgs::MoveItErrorCodes error_code;
 
@@ -168,13 +203,13 @@ void driveArm()
     // pose.position.y = 0.0;
     // pose.position.z = 0.535;
 
-	// Camera Search position.
-	const tf::Vector3& position = g_cameraSearch.getOrigin();
+	const tf::Vector3& position = g.getOrigin();
+    geometry_msgs::Pose pose;
 	pose.position.x = position.getX();
 	pose.position.y = position.getY();
 	pose.position.z = position.getZ();
 
-	const tf::Matrix3x3& rot = g_cameraSearch.getBasis();
+	const tf::Matrix3x3& rot = g.getBasis();
 	tf::Quaternion q;
 	rot.getRotation( q );
 	pose.orientation.w = q.getW();
@@ -191,25 +226,7 @@ void driveArm()
 			std::cerr << "Joint " << i << ":  " << solution[i] << std::endl;
 		}
 
-		std_msgs::Float64 v0;
-		v0.data = solution[0];
-		armJoint1.publish(v0);
-
-		std_msgs::Float64 v1;
-		v1.data = solution[1];
-		armJoint2.publish(v1);
-
-		std_msgs::Float64 v2;
-		v2.data = solution[2];
-		armJoint3.publish(v2);
-
-		std_msgs::Float64 v3;
-		v3.data = solution[3];
-		armJoint4.publish(v3);
-
-		std_msgs::Float64 v4;
-		v4.data = solution[4];
-		armJoint5.publish(v4);
+		positionArm_fk( solution );
 	}
 	else
 	{
@@ -220,7 +237,7 @@ void driveArm()
 
 tf::Transform getBaseToBlockTransform(const geometry_msgs::Pose& pose)
 {
-	// Start off as base_link -> arm_link_0
+	// Start off as base_link> arm_link_0
 	tf::Transform g_baseToBlock = g_base_link_to_arm0;
 
 	// Now take it from base_link -> arm_link_5
@@ -244,6 +261,9 @@ tf::Transform getBaseToBlockTransform(const geometry_msgs::Pose& pose)
 
 void block_callback(const geometry_msgs::Pose& pose)
 {
+	if( blockFound )
+		return;
+	
 	std::cerr << "Received block pose!" << std::endl;
 	std::cerr << "Quaternion:" << std::endl;
 	std::cerr << "\tw: " << pose.orientation.w << std::endl;
@@ -258,9 +278,9 @@ void block_callback(const geometry_msgs::Pose& pose)
 	std::cerr << std::endl;
 
 	// Build a transformation matrix
-	tf::Transform tf = getBaseToBlockTransform(pose);
+	g_baseToBlock = getBaseToBlockTransform(pose);
 
-	tf::Matrix3x3 rot = tf.getBasis();
+	tf::Matrix3x3 rot = g_baseToBlock.getBasis();
 	std::cerr << "Block pose relative to base frame" << std::endl;
 	tf::Vector3 row = rot.getRow(0);
 	std::cerr << "    | " << row.getX() << " " << row.getY() << " " << row.getZ() << " | " << std::endl;
@@ -269,36 +289,14 @@ void block_callback(const geometry_msgs::Pose& pose)
 	row = rot.getRow(2);
 	std::cerr << "    | " << row.getX() << " " << row.getY() << " " << row.getZ() << " | " << std::endl;
 	std::cerr << std::endl;
-	tf::Vector3 t = tf.getOrigin();
+	tf::Vector3 t = g_baseToBlock.getOrigin();
 	std::cerr << "t = < " << t.getX() << ", " << t.getY() << ", " << t.getZ() << " >" << std::endl;
 
-	
-	// Set a new target position for the robot based on the position of the block relative to the base.
-	// goal.target_pose.header.frame_id = "base_link";
-	// goal.target_pose.header.stamp = ros::Time::now();
+	blockFound = true;
+}
 
-	// goal.target_pose.pose.position.x = t.getX();
-	// goal.target_pose.pose.position.y = t.getY() + 0.5;
-	// goal.target_pose.pose.orientation.w = 1.0;
-
-
-	// std::cout << "Creating MoveBaseClient" << std::endl;
-	// MoveBaseClient ac("move_base", true);
-
-	// while(!ac.waitForServer(ros::Duration(5.0)))
-	// {
-	// 	ROS_INFO("Waiting for the move_base action server to come up...");
-	// }
-	// ROS_INFO("Found action server!");
-	// std::cout << "Sending goal" << std::endl;
-	// ac.sendGoal(goal);
-	// ac.waitForResult();
-
-	// if( ac.getState() == actionlib::SimpleClientGoalState::SUCCEEDED)
-	// 	ROS_INFO("Hooray, the base moved");
-	// else
-	// 	ROS_INFO("The base failed to move for some reason");
-
+void moveRelativeToBaseLink( const tf::Transform& tf )
+{
 	std::cerr << "Preparing to publish move goal." << std::endl;
 	geometry_msgs::PoseStamped goalPose;
 	goalPose.header.stamp = ros::Time::now();
@@ -311,6 +309,7 @@ void block_callback(const geometry_msgs::Pose& pose)
 	odomY = currentOdom.pose.pose.position.y;
 	odomMutex.unlock();
 	
+	tf::Vector3 t = tf.getOrigin();
 	goalPose.pose.position.x = t.getX() + odomX;
 	goalPose.pose.position.y = t.getY() + odomY;
 	goalPose.pose.orientation.w = 1.0;
@@ -326,10 +325,17 @@ void odom_callback(const nav_msgs::Odometry& odom)
 	odomMutex.unlock();
 }
 
-int main (int argc, char** argv)
+void move_base_status_callback( const actionlib_msgs::GoalStatusArray& status )
+{
+	if( !status.status_list.empty() )
+		navGoalStatus = status.status_list[0].status;
+}
+
+int main( int argc, char** argv )
 {
 	ros::init(argc, argv, "arm_control");
     ros::NodeHandle nh;
+
 	
 	std::cerr << "Creating publishers." << std::endl;
 	armJoint1 = nh.advertise<std_msgs::Float64>( "/youbot/arm_joint_1_position_controller/command", 1 );
@@ -346,7 +352,8 @@ int main (int argc, char** argv)
 	std::cerr << "Creating subscribers." << std::endl;
     blockPoseSub = nh.subscribe( "/block_pose", 1, block_callback );
 	odomSub = nh.subscribe( "/youbot/odom", 1, odom_callback );
-	
+	moveBaseGoalStatusSub = nh.subscribe( "/move_base/status", 1, move_base_status_callback );
+
 	
 	std::cerr << "Waiting 5 seconds to allow everything to start up." << std::endl;
 	for( int i = 5; i > 0; --i )
@@ -355,14 +362,88 @@ int main (int argc, char** argv)
 		ros::Duration(1).sleep();
 	}
 
+
+	std::cerr << "Creating kinematics object." << std::endl;
+    pluginlib::ClassLoader<kinematics::KinematicsBase> loader("moveit_core", "kinematics::KinematicsBase");
+    KinematicsBasePtr kinematics = loader.createInstance(PLUGIN);
+	kinematics->initialize("/robot_description", "arm_1", "arm_link_0", "arm_link_5", 0.1);
+	
+	
 	std::cerr << "Initializing matrices and other things." << std::endl;
 	initialize();
 	
-	std::cerr << "Driving arm." << std::endl;
-	driveArm();
+	std::cerr << "Driving arm to camera position." << std::endl;
+	positionArm_ik( kinematics, g_cameraSearch, seedCameraSearch );
 
-	std::cerr << "Sending navigation goals." << std::endl;
+	currentState = WaitingForBlock;
+	while(ros::ok())
+	{
+		switch(currentState)
+		{
+		case WaitingForBlock:
+			if( blockFound )
+			{
+				// Drive the base next to the block.
+				tf::Transform goal = g_baseToBlock;
+				
+				odomMutex.lock();
+				goal.getOrigin().setX( goal.getOrigin().getX() + currentOdom.pose.pose.position.x );
+				goal.getOrigin().setY( goal.getOrigin().getY() + currentOdom.pose.pose.position.y - 0.5 );
+				odomMutex.unlock();
+
+				moveRelativeToBaseLink(goal);
+				currentState = NavigatingToBlock;
+				std::cerr << "Exiting the WaitingForBlock state" << std::endl;
+			}
+			break;
+
+		case NavigatingToBlock:
+			if( navGoalStatus == 3 )  // state SUCCEEDED
+			{
+				currentState = MovingArmToSearchPose;
+				std::cerr << "Reached navigation goal." << std::endl;
+			}
+			break;
+			
+		case MovingArmToSearchPose:
+		{
+			std::cerr << "Moving arm to search pose." << std::endl;
+			std::vector<double> angles;
+			angles.push_back( seedGraspLeft90Deg[0] );
+			angles.push_back( seedGraspLeft90Deg[1] );
+			angles.push_back( seedGraspLeft90Deg[2] );
+			angles.push_back( seedGraspLeft90Deg[3] );
+			angles.push_back( seedGraspLeft90Deg[4] );
+			positionArm_fk( angles );
+			currentState = AligningToBlock;
+			break;
+		}
+			
+		case AligningToBlock:
+			break;
+			
+		case GraspingBlock:
+			break;
+			
+		case PuttingArmInCarryPose:
+			break;
+			
+		case ReturningBlock:
+			break;
+
+		default:
+			break;
+		}
+
+		// Exit our loop if we are finished.
+		if( currentState == Finished )
+		{
+			std::cerr << "Finished executing!  Exiting." << std::endl;
+			break;
+		}
+
+		ros::spinOnce();
+	}
 	
-	ros::spin();
 	return 0;
 }
