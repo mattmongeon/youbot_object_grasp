@@ -8,6 +8,12 @@ To see the youBot in rviz and manipulate the joints with sliders:
 To see the youBot in rviz and manipulate the joints with interactive markers:
 * roslaunch youbot_moveit demo.launch (from ~/winter_ws)
 
+To set joints directly on youBot and see the tf:
+* roslaunch youbot_driver_ros_interface youbot_driver.launch
+* rosrun youbot_driver_ros_interface youbot_arm_test
+* roslaunch youbot_description youbot_rviz.launch (from ~/hydrows)
+* rosrun tf <some tf program>
+
 To get the eband_local_planner to work in ROS Indigo (not necessary with ROS Hydro, specifically on youBot):
 * Clone the package eband_local_planner from https://github.com/utexas-bwi/eband_local_planner.git
   - Modify CMakeLists.txt to add the line:  find_package(cmake_modules REQUIRED)
@@ -25,6 +31,23 @@ Next Steps:
   * Put the MoveIt code on the youBot and make sure it can control the arm to the candle position, etc.
 - Complete the set of pre-programmed arm angles
   * Need a starting position for above the block for grasping.
+
+TO DO AT SOME POINT BEFORE PROJECT IS DONE:
+------------------------------------------
+- Can do dynamic calibration of the kinect's orientation.  Steps:
+  1. Put arm into block search mode.
+  2. Segment out the plane of the floor
+  3. Determine the normal of the floor plane
+  4. Use the normal of the floor plane and the known geometry and transformations of the youBot to determine the kinect's orientation.
+
+Bonus Points:
+------------
+- Have visualizations that show how the robot is processing things
+  o The point cloud display from the Kinect
+  o The camera feed can be shown as another window
+  o rviz can be used to show the processed point cloud and a cube overlaid in it to show where it thinks the block is
+  o Show the planned path from navstack
+  o Show the MoveIt! planning in rviz before moving the arm
 
 Questions:
 ---------
@@ -64,3 +87,5 @@ How navstack stuff works:
 - move_base handles actually moving the youBot.
 - odom_tf_pub node generates a transform between odom and base_link frames.
 - amcl node maintains the transform between odom and map frames and updates positioning every now and then.
+
+
