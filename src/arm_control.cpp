@@ -12,7 +12,6 @@
 #include <tf/LinearMath/Quaternion.h>
 #include <tf/LinearMath/Vector3.h>
 #include <tf/LinearMath/Matrix3x3.h>
-#include <boost/thread/mutex.hpp>
 
 #include <iostream>
 #include <vector>
@@ -33,14 +32,6 @@ ros::Subscriber blockPoseSub;
 ros::Subscriber odomSub;
 ros::Subscriber moveBaseGoalStatusSub;
 
-// Set up some joint angle values for seeding the ik solver when we need to start
-// grasping objects.
-double seedGraspForward[] = { 2.95, 1.79738, -1.94584, 3.53938, 2.93883 };
-double seedGraspRight90Deg[] = { 4.56, 1.79738, -1.94584, 3.53938, 2.93883 };
-double seedGraspRight45Deg[] = { 3.76, 1.79738, -1.94584, 3.53938, 2.93883 };
-double seedGraspLeft90Deg[] = { 1.37, 1.79738, -1.94584, 3.53938, 2.93883 };
-double seedGraspLeft45Deg[] = { 2.16, 1.79738, -1.94584, 3.53938, 2.93883 };
-
 
 // --- Helper transformation matrices --- //
 
@@ -53,8 +44,22 @@ tf::Transform g_arm0_to_base_link;
 
 // --- Poses of arm_link_5 relative to arm_link_0 --- //
 
-tf::Transform g_cameraSearch;
+tf::Transform g_cameraSearch_05;
 double seedCameraSearch[] = { 2.93215, 0.25865, -0.84097, 2.52836, 2.92343 };
+
+// Set up some joint angle values for seeding the ik solver when we need to start
+// grasping objects.
+double seedGraspForward[] = { 2.95, 2.04427, -1.51891, 2.54343, 2.93883 };
+double seedGraspRight90Deg[] = { 4.56, 2.04427, -1.51891, 2.54343, 2.93883 };
+double seedGraspRight45Deg[] = { 3.76, 2.04427, -1.51891, 2.54343, 2.93883 };
+double seedGraspLeft90Deg[] = { 1.37, 2.04427, -1.51891, 2.54343, 2.93883 };
+double seedGraspLeft45Deg[] = { 2.16, 2.04427, -1.51891, 2.54343, 2.93883 };
+
+tf::Transform g_startGraspForward_05;
+tf::Transform g_startGraspRight90Deg_05;
+tf::Transform g_startGraspRight45Deg_05;
+tf::Transform g_startGraspLeft90Deg_05;
+tf::Transform g_startGraspLeft45Deg_05;
 
 
 // --- Target Position --- //
@@ -98,12 +103,7 @@ tf::Transform g_baseToBlock;
 int navGoalStatus = 0;
 
 
-// --- Synchronization --- //
-
-boost::recursive_mutex odomMutex;
-
-
-void initialize()
+void initialize(KinematicsBasePtr kinematics)
 {
 	tf::Matrix3x3 rot;
 	tf::Vector3 t;
@@ -139,6 +139,7 @@ void initialize()
 	
 	g_arm0_to_base_link = g_base_link_to_arm0.inverse();
 
+	
 	// --- Define the Camera Search pose --- //
 
 	// This goes from base_link to arm_link_5
@@ -147,12 +148,55 @@ void initialize()
 				  -1.0, 0.0, 0.0 );
 	t.setValue( 0.310676, 0.00250788, 0.351227 );
 	
-	g_cameraSearch.setBasis(rot);
-	g_cameraSearch.setOrigin(t);
+	g_cameraSearch_05.setBasis(rot);
+	g_cameraSearch_05.setOrigin(t);
 
 	// Now we will use the arm_link_0 -> base_link transformation matrix
 	// to get the camera search transformation to be from arm_link_0 to 5.
-	g_cameraSearch = g_arm0_to_base_link * g_cameraSearch;
+	g_cameraSearch_05 = g_arm0_to_base_link * g_cameraSearch_05;
+
+
+	// --- Define Grasping Poses --- //
+
+	// Forward
+
+	tf::Quaternion q( -0.016, 0.975, 0.0, 0.222 );
+	t.setValue( 0.355, 0.006, 0.059 );
+
+	g_startGraspForward_05.setRotation(q);
+	g_startGraspForward_05.setOrigin(t);
+	
+	// Right 90 degrees.
+
+	q.setValue( 0.692, 0.687, -0.16, 0.154 );
+	t.setValue( 0.017, -0.331, 0.059 );
+
+	g_startGraspRight90Deg_05.setRotation(q);
+	g_startGraspRight90Deg_05.setOrigin(t);
+
+	// Right 45 degrees.
+	
+	q.setValue( 0.37, 0.902, -0.087, 0.204 );
+	t.setValue( 0.256, -0.236, 0.059 );
+
+	g_startGraspRight45Deg_05.setRotation(q);
+	g_startGraspRight45Deg_05.setOrigin(t);
+
+	// Left 45 degrees.
+
+	q.setValue( -0.39, 0.894, 0.086, 0.205 );
+	t.setValue( 0.253, 0.239, 0.059 );
+
+	g_startGraspLeft45Deg_05.setRotation(q);
+	g_startGraspLeft45Deg_05.setOrigin(t);
+
+	// Left 90 degrees.
+	
+	q.setValue( 0.704, -0.675, -0.158, -0.156 );
+	t.setValue( 0.015, 0.331, 0.059 );
+
+	g_startGraspLeft90Deg_05.setRotation(q);
+	g_startGraspLeft90Deg_05.setOrigin(t);
 }
 
 
@@ -241,7 +285,7 @@ tf::Transform getBaseToBlockTransform(const geometry_msgs::Pose& pose)
 	tf::Transform g_baseToBlock = g_base_link_to_arm0;
 
 	// Now take it from base_link -> arm_link_5
-	g_baseToBlock *= g_cameraSearch;
+	g_baseToBlock *= g_cameraSearch_05;
 
 	// Now take it from base_link -> ASUS frame
 	g_baseToBlock *= g_A5ToAsus;
@@ -304,10 +348,10 @@ void moveRelativeToBaseLink( const tf::Transform& tf )
 
 	double odomX = 0.0;
 	double odomY = 0.0;
-	odomMutex.lock();
+
 	odomX = currentOdom.pose.pose.position.x;
 	odomY = currentOdom.pose.pose.position.y;
-	odomMutex.unlock();
+
 	
 	tf::Vector3 t = tf.getOrigin();
 	goalPose.pose.position.x = t.getX() + odomX;
@@ -320,9 +364,7 @@ void moveRelativeToBaseLink( const tf::Transform& tf )
 
 void odom_callback(const nav_msgs::Odometry& odom)
 {
-	odomMutex.lock();
 	currentOdom = odom;
-	odomMutex.unlock();
 }
 
 void move_base_status_callback( const actionlib_msgs::GoalStatusArray& status )
@@ -370,10 +412,10 @@ int main( int argc, char** argv )
 	
 	
 	std::cerr << "Initializing matrices and other things." << std::endl;
-	initialize();
+	initialize(kinematics);
 	
 	std::cerr << "Driving arm to camera position." << std::endl;
-	positionArm_ik( kinematics, g_cameraSearch, seedCameraSearch );
+	positionArm_ik( kinematics, g_cameraSearch_05, seedCameraSearch );
 
 	currentState = WaitingForBlock;
 	while(ros::ok())
@@ -386,10 +428,8 @@ int main( int argc, char** argv )
 				// Drive the base next to the block.
 				tf::Transform goal = g_baseToBlock;
 				
-				odomMutex.lock();
 				goal.getOrigin().setX( goal.getOrigin().getX() + currentOdom.pose.pose.position.x );
 				goal.getOrigin().setY( goal.getOrigin().getY() + currentOdom.pose.pose.position.y - 0.5 );
-				odomMutex.unlock();
 
 				moveRelativeToBaseLink(goal);
 				currentState = NavigatingToBlock;
@@ -408,19 +448,29 @@ int main( int argc, char** argv )
 		case MovingArmToSearchPose:
 		{
 			std::cerr << "Moving arm to search pose." << std::endl;
-			std::vector<double> angles;
-			angles.push_back( seedGraspLeft90Deg[0] );
-			angles.push_back( seedGraspLeft90Deg[1] );
-			angles.push_back( seedGraspLeft90Deg[2] );
-			angles.push_back( seedGraspLeft90Deg[3] );
-			angles.push_back( seedGraspLeft90Deg[4] );
-			positionArm_fk( angles );
+			positionArm_ik( kinematics, g_startGraspLeft90Deg_05, seedGraspLeft90Deg );
 			currentState = AligningToBlock;
 			break;
 		}
 			
 		case AligningToBlock:
+		{
+			std::cerr << "Waiting 5 seconds to allow arm to finish moving." << std::endl;
+			for( int i = 5; i > 0; --i )
+			{
+				std::cerr << i << std::endl;
+				ros::Duration(1).sleep();
+			}
+
+			tf::Transform translate;
+			translate.setIdentity();
+			translate.getOrigin().setZ( translate.getOrigin().getZ() - 0.05 );
+
+			std::cerr << "Translating along search pose." << std::endl;
+			positionArm_ik( kinematics, g_startGraspLeft90Deg_05 * translate, seedGraspLeft90Deg );
+			
 			break;
+		}
 			
 		case GraspingBlock:
 			break;
