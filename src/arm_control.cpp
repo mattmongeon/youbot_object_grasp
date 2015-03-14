@@ -17,6 +17,11 @@
 #include <vector>
 
 
+// --- Constants --- //
+
+const double PI = 3.14159265358979323846;
+
+
 // --- ROS Stuff --- //
 
 const std::string PLUGIN = "youbot_arm_kinematics_moveit::KinematicsPlugin";
@@ -62,6 +67,11 @@ tf::Transform g_startGraspLeft90Deg_05;
 tf::Transform g_startGraspLeft45Deg_05;
 
 
+// --- Starting Position --- //
+
+tf::Transform g_StartingPose_w;
+
+
 // --- Target Position --- //
 
 double targetX_m = 0.0;
@@ -76,7 +86,7 @@ move_base_msgs::MoveBaseGoal goal;
 
 ros::Publisher moveBaseGoalPub;
 
-nav_msgs::Odometry currentOdom;
+tf::Transform currentOdom;
 
 
 // --- Controller Values --- //
@@ -90,7 +100,12 @@ enum ProcessState
 	AligningToBlock,
 	GraspingBlock,
 	PuttingArmInCarryPose,
-	ReturningBlock,
+	InitiatingTurningAround,
+	TurningAround,
+	InitiatingReturnToStart,
+	ReturningToStart,
+	InitiateTurnToOriginalYaw,
+	TurningToOriginalYaw,
 	Finished
 };
 
@@ -279,9 +294,20 @@ void positionArm_ik(KinematicsBasePtr kinematics, const tf::Transform& g, double
 }
 
 
-tf::Transform getBaseToBlockTransform(const geometry_msgs::Pose& pose)
+// Helper function that takes in a geometry_msgs::Pose object and
+// returns a new tf::Transform.
+tf::Transform getTransformFromPose(const geometry_msgs::Pose& pose)
 {
-	// Start off as base_link> arm_link_0
+	tf::Quaternion q( pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w );
+	tf::Vector3 t( pose.position.x, pose.position.y, pose.position.z );
+	
+	return tf::Transform( q, t );
+}
+
+
+tf::Transform getBaseToBlockTransform(const geometry_msgs::Pose& pose_ASUStoBlock)
+{
+	// Start off as base_link -> arm_link_0
 	tf::Transform g_baseToBlock = g_base_link_to_arm0;
 
 	// Now take it from base_link -> arm_link_5
@@ -290,14 +316,9 @@ tf::Transform getBaseToBlockTransform(const geometry_msgs::Pose& pose)
 	// Now take it from base_link -> ASUS frame
 	g_baseToBlock *= g_A5ToAsus;
 
-	// Now turn the incoming pose to a transformation matrix.
-	tf::Quaternion q( pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w );
-	tf::Vector3 t( pose.position.x, pose.position.y, pose.position.z );
-	
-	tf::Transform g_AsusToBlock( q, t );
-
-	// Now take it the rest of the way from base_link -> block
-	g_baseToBlock *= g_AsusToBlock;
+	// Now take it the rest of the way from base_link -> block.  The transform returned
+	// from the function is ASUS -> block.
+	g_baseToBlock *= getTransformFromPose(pose_ASUStoBlock);
 
 	return g_baseToBlock;
 }
@@ -339,24 +360,50 @@ void block_callback(const geometry_msgs::Pose& pose)
 	blockFound = true;
 }
 
-void moveRelativeToBaseLink( const tf::Transform& tf )
+void moveToAbsolutePosition( const tf::Transform& g )
 {
+	tf::Vector3 t = g.getOrigin();
+	tf::Quaternion q = g.getRotation();
+
 	std::cerr << "Preparing to publish move goal." << std::endl;
 	geometry_msgs::PoseStamped goalPose;
 	goalPose.header.stamp = ros::Time::now();
 	goalPose.header.frame_id = "map";
 
-	double odomX = 0.0;
-	double odomY = 0.0;
+	goalPose.pose.position.x = t.getX();
+	goalPose.pose.position.y = t.getY();
 
-	odomX = currentOdom.pose.pose.position.x;
-	odomY = currentOdom.pose.pose.position.y;
+	/*
+	goalPose.pose.orientation.x = q.getX();
+	goalPose.pose.orientation.y = q.getY();
+	goalPose.pose.orientation.z = q.getZ();
+	*/
+	goalPose.pose.orientation.w = q.getW();
 
-	
-	tf::Vector3 t = tf.getOrigin();
-	goalPose.pose.position.x = t.getX() + odomX;
-	goalPose.pose.position.y = t.getY() + odomY;
-	goalPose.pose.orientation.w = 1.0;
+	std::cerr << "Publishing to /move_base_goal/simple" << std::endl;
+	moveBaseGoalPub.publish(goalPose);
+}
+
+void moveRelativeToBaseLink( const tf::Transform& g )
+{
+	tf::Transform goal = currentOdom * g;
+	tf::Vector3 t = goal.getOrigin();
+	tf::Quaternion q = goal.getRotation();
+
+	std::cerr << "Preparing to publish move goal." << std::endl;
+	geometry_msgs::PoseStamped goalPose;
+	goalPose.header.stamp = ros::Time::now();
+	goalPose.header.frame_id = "map";
+
+	goalPose.pose.position.x = t.getX();
+	goalPose.pose.position.y = t.getY();
+
+	/*
+	goalPose.pose.orientation.x = q.getX();
+	goalPose.pose.orientation.y = q.getY();
+	goalPose.pose.orientation.z = q.getZ();
+	*/
+	goalPose.pose.orientation.w = q.getW();
 
 	std::cerr << "Publishing to /move_base_goal/simple" << std::endl;
 	moveBaseGoalPub.publish(goalPose);
@@ -364,13 +411,24 @@ void moveRelativeToBaseLink( const tf::Transform& tf )
 
 void odom_callback(const nav_msgs::Odometry& odom)
 {
-	currentOdom = odom;
+	tf::Vector3 t( odom.pose.pose.position.x,
+				   odom.pose.pose.position.y,
+				   odom.pose.pose.position.z );
+	tf::Quaternion q( odom.pose.pose.orientation.x,
+					  odom.pose.pose.orientation.y,
+					  odom.pose.pose.orientation.z,
+					  odom.pose.pose.orientation.w );
+	currentOdom.setOrigin( t );
+	currentOdom.setRotation( q );
 }
 
 void move_base_status_callback( const actionlib_msgs::GoalStatusArray& status )
 {
 	if( !status.status_list.empty() )
-		navGoalStatus = status.status_list[0].status;
+	{
+		int index = status.status_list.size() - 1;
+		navGoalStatus = status.status_list[index].status;
+	}
 }
 
 int main( int argc, char** argv )
@@ -425,62 +483,179 @@ int main( int argc, char** argv )
 		case WaitingForBlock:
 			if( blockFound )
 			{
+				// First let's save our starting position so we can return to it.
+				g_StartingPose_w = currentOdom;
+				
 				// Drive the base next to the block.
 				tf::Transform goal = g_baseToBlock;
-				
-				goal.getOrigin().setX( goal.getOrigin().getX() + currentOdom.pose.pose.position.x );
-				goal.getOrigin().setY( goal.getOrigin().getY() + currentOdom.pose.pose.position.y - 0.5 );
+				goal.getOrigin().setY( goal.getOrigin().getY() - 0.5 );
 
 				moveRelativeToBaseLink(goal);
 				currentState = NavigatingToBlock;
 				std::cerr << "Exiting the WaitingForBlock state" << std::endl;
+				std::cerr << std::endl;
+				std::cerr << "Entering NavigatingToBlock state" << std::endl;
 			}
 			break;
 
+			
 		case NavigatingToBlock:
 			if( navGoalStatus == 3 )  // state SUCCEEDED
 			{
 				currentState = MovingArmToSearchPose;
+				navGoalStatus = 0;
 				std::cerr << "Reached navigation goal." << std::endl;
+				std::cerr << "Exiting NavigatingToBlock state" << std::endl;
 			}
 			break;
+
 			
 		case MovingArmToSearchPose:
 		{
+			std::cerr << std::endl;
+			std::cerr << "Entering MovingArmToSearchPose state" << std::endl;
 			std::cerr << "Moving arm to search pose." << std::endl;
 			positionArm_ik( kinematics, g_startGraspLeft90Deg_05, seedGraspLeft90Deg );
 			currentState = AligningToBlock;
+			std::cerr << "Exiting MovingArmToSearchPose state" << std::endl;
 			break;
 		}
-			
+
+		
 		case AligningToBlock:
 		{
+			std::cerr << std::endl;
+			std::cerr << "Entering AligningToBlock state" << std::endl;
+			currentState = GraspingBlock;
+			std::cerr << "Exiting AligningToBlock state" << std::endl;
+			break;
+		}
+
+		
+		case GraspingBlock:
+		{
+			std::cerr << std::endl;
+			std::cerr << "Entering GraspingBlock state" << std::endl;
 			std::cerr << "Waiting 5 seconds to allow arm to finish moving." << std::endl;
-			for( int i = 5; i > 0; --i )
-			{
-				std::cerr << i << std::endl;
-				ros::Duration(1).sleep();
-			}
+			ros::Duration(5).sleep();
 
 			tf::Transform translate;
 			translate.setIdentity();
-			translate.getOrigin().setZ( translate.getOrigin().getZ() - 0.05 );
+			translate.getOrigin().setZ( translate.getOrigin().getZ() + 0.05 );
 
 			std::cerr << "Translating along search pose." << std::endl;
 			positionArm_ik( kinematics, g_startGraspLeft90Deg_05 * translate, seedGraspLeft90Deg );
-			
+			ros::Duration(3.0).sleep();  // Allow the arm to translate so we see it.
+			currentState = PuttingArmInCarryPose;
+			std::cerr << "Exiting GraspingBlock state" << std::endl;
 			break;
 		}
-			
-		case GraspingBlock:
-			break;
-			
+
+		
 		case PuttingArmInCarryPose:
+		{
+			std::cerr << std::endl;
+			std::cerr << "Entered PuttingArmInCarryPose state" << std::endl;
+			std::cerr << "Driving arm to carry pose." << std::endl;
+			positionArm_ik( kinematics, g_cameraSearch_05, seedCameraSearch );
+			std::cerr << "Waiting 3 seconds to allow arm to reach pose" << std::endl;
+			ros::Duration(3.0).sleep();  // Allow the arm to reach the pose.
+			currentState = InitiatingTurningAround;
+			navGoalStatus = 0;
+			std::cerr << "Exiting PuttingArmInCarryPose state" << std::endl;
 			break;
+		}
+
+
+		case InitiatingTurningAround:
+		{
+			std::cerr << std::endl;
+			std::cerr << "Entering InitiatingTurningAround state" << std::endl;
+			std::cerr << "navGoalStatus:  " << navGoalStatus << std::endl;
+			std::cerr << "Publishing goal and waiting for status to change" << std::endl;
+
+			tf::Matrix3x3 r;
+			r.setRPY(0, 0, PI);
 			
-		case ReturningBlock:
+			tf::Transform g_yawed;
+			g_yawed.setBasis(r);
+
+			moveRelativeToBaseLink(g_yawed);
+
+			while( navGoalStatus == 3 )
+			{
+				ros::spinOnce();
+			}
+			std::cerr << "Move goal accepted" << std::endl;
+
+			std::cerr << "Exiting InitiatingTurningAround state" << std::endl;
+			std::cerr << std::endl;
+			std::cerr << "Entering TurningAround state" << std::endl;
+			currentState = TurningAround;
+
+			break;
+		}
+
+		
+		case TurningAround:
+		{
+			if( navGoalStatus == 3 )  // state SUCCEEDED
+			{
+				currentState = InitiatingReturnToStart;
+				std::cerr << "Reached yaw goal." << std::endl;
+				std::cerr << "Exiting TurningAround state" << std::endl;
+			}
+			break;
+		}
+
+
+		case InitiatingReturnToStart:
+		{
+			/*
+			std::cerr << std::endl;
+			std::cerr << "Entering InitiatingReturnToStart state" << std::endl;
+			std::cerr << "navGoalStatus:  " << navGoalStatus << std::endl;
+			std::cerr << "Publishing goal and waiting for status to change" << std::endl;
+
+			moveToAbsolutePosition(g_StartingPose_w);
+
+			while( navGoalStatus == 3 )
+			{
+				ros::spinOnce();
+			}
+
+			currentState = ReturningToStart;
+			std::cerr << "Exiting InitiatingReturnToStart" << std::endl;
+			std::cerr << std::endl;
+			std::cerr << "Entering ReturningToStart state" << std::endl;
+			*/
+			break;
+		}
+		
+		case ReturningToStart:
+		{
+			if( navGoalStatus == 3 )
+			{
+				// When we have reached the goal, transition to the next state.
+				currentState = TurningToOriginalYaw;
+				std::cerr << "Exiting the ReturningToStart state" << std::endl;
+				std::cerr << std::endl;
+				std::cerr << "Entering final state:  TurningToOriginalYaw" << std::endl;
+			}
+			break;
+		}
+
+
+		case InitiateTurnToOriginalYaw:
+		{
+			break;
+		}
+
+		
+		case TurningToOriginalYaw:
 			break;
 
+			
 		default:
 			break;
 		}
