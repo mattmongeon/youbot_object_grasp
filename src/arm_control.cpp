@@ -38,6 +38,7 @@ ros::Subscriber blockPoseSub;
 ros::Subscriber odomSub;
 ros::Subscriber moveBaseGoalStatusSub;
 
+tf::TransformListener* listener;
 
 // --- Helper transformation matrices --- //
 
@@ -101,12 +102,8 @@ enum ProcessState
 	AligningToBlock,
 	GraspingBlock,
 	PuttingArmInCarryPose,
-	InitiatingTurningAround,
-	TurningAround,
 	InitiatingReturnToStart,
 	ReturningToStart,
-	InitiateTurnToOriginalYaw,
-	TurningToOriginalYaw,
 	Finished
 };
 
@@ -391,12 +388,10 @@ void moveToAbsolutePosition( const tf::Transform& g )
 
 void moveRelativeToBaseLink( const tf::Transform& g )
 {
-	static tf::TransformListener listener;
-	
 	tf::StampedTransform g_mapToOdom;
 	try
 	{
-		listener.lookupTransform("/map", "/youbot/odom", ros::Time(0), g_mapToOdom);
+		listener->lookupTransform("/map", "/youbot/odom", ros::Time(0), g_mapToOdom);
 	}
 	catch(tf::TransformException e)
 	{
@@ -455,6 +450,8 @@ int main( int argc, char** argv )
 	baseVelPub = nh.advertise<geometry_msgs::Twist>( "/youbot/cmd_vel", 1 );
 
 	moveBaseGoalPub = nh.advertise<geometry_msgs::PoseStamped>("/move_base_simple/goal", 5, true);
+
+	listener = new tf::TransformListener();
 	
 	
 	std::cerr << "Creating subscribers." << std::endl;
@@ -570,54 +567,9 @@ int main( int argc, char** argv )
 			positionArm_ik( kinematics, g_cameraSearch_05, seedCameraSearch );
 			std::cerr << "Waiting 3 seconds to allow arm to reach pose" << std::endl;
 			ros::Duration(3.0).sleep();  // Allow the arm to reach the pose.
-			currentState = InitiatingTurningAround;
+			currentState = InitiatingReturnToStart;
 			navGoalStatus = 0;
 			std::cerr << "Exiting PuttingArmInCarryPose state" << std::endl;
-			break;
-		}
-
-
-		case InitiatingTurningAround:
-		{
-			std::cerr << std::endl;
-			std::cerr << "Entering InitiatingTurningAround state" << std::endl;
-			std::cerr << "navGoalStatus:  " << navGoalStatus << std::endl;
-			std::cerr << "Publishing goal and waiting for status to change" << std::endl;
-
-			tf::Vector3 t( 0, 0, 0 );
-			
-			tf::Matrix3x3 r;
-			r.setRPY(0, 0, PI);
-			
-			tf::Transform g_yawed;
-			g_yawed.setBasis(r);
-			g_yawed.setOrigin(t);
-
-			moveRelativeToBaseLink(g_yawed);
-
-			while( navGoalStatus == 3 )
-			{
-				ros::spinOnce();
-			}
-			std::cerr << "Move goal accepted" << std::endl;
-
-			std::cerr << "Exiting InitiatingTurningAround state" << std::endl;
-			std::cerr << std::endl;
-			std::cerr << "Entering TurningAround state" << std::endl;
-			currentState = TurningAround;
-
-			break;
-		}
-
-		
-		case TurningAround:
-		{
-			if( navGoalStatus == 3 )  // state SUCCEEDED
-			{
-				currentState = InitiatingReturnToStart;
-				std::cerr << "Reached yaw goal." << std::endl;
-				std::cerr << "Exiting TurningAround state" << std::endl;
-			}
 			break;
 		}
 
@@ -649,38 +601,24 @@ int main( int argc, char** argv )
 			if( navGoalStatus == 3 )
 			{
 				// When we have reached the goal, transition to the next state.
-				currentState = TurningToOriginalYaw;
+				currentState = Finished;
 				std::cerr << "Exiting the ReturningToStart state" << std::endl;
 				std::cerr << std::endl;
-				std::cerr << "Entering final state:  TurningToOriginalYaw" << std::endl;
+				std::cerr << "Finished!" << std::endl;
 			}
 			break;
 		}
 
 
-		case InitiateTurnToOriginalYaw:
-		{
-			break;
-		}
-
-		
-		case TurningToOriginalYaw:
-			break;
-
-			
 		default:
-			break;
-		}
-
-		// Exit our loop if we are finished.
-		if( currentState == Finished )
-		{
-			std::cerr << "Finished executing!  Exiting." << std::endl;
 			break;
 		}
 
 		ros::spinOnce();
 	}
+
+	delete listener;
+	listener = 0;
 	
 	return 0;
 }
