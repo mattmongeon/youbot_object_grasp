@@ -12,6 +12,7 @@
 #include <tf/LinearMath/Quaternion.h>
 #include <tf/LinearMath/Vector3.h>
 #include <tf/LinearMath/Matrix3x3.h>
+#include <tf/transform_listener.h>
 
 #include <iostream>
 #include <vector>
@@ -373,11 +374,15 @@ void moveToAbsolutePosition( const tf::Transform& g )
 	goalPose.pose.position.x = t.getX();
 	goalPose.pose.position.y = t.getY();
 
-	/*
+	// Ensure we have no rotation except possibly about the z axis.
+	tf::Matrix3x3 rot( q );
+	tfScalar r, p, y;
+	rot.getRPY( r, p, y );
+	q.setRPY( 0, 0, y );
+
 	goalPose.pose.orientation.x = q.getX();
 	goalPose.pose.orientation.y = q.getY();
 	goalPose.pose.orientation.z = q.getZ();
-	*/
 	goalPose.pose.orientation.w = q.getW();
 
 	std::cerr << "Publishing to /move_base_goal/simple" << std::endl;
@@ -386,27 +391,30 @@ void moveToAbsolutePosition( const tf::Transform& g )
 
 void moveRelativeToBaseLink( const tf::Transform& g )
 {
-	tf::Transform goal = currentOdom * g;
-	tf::Vector3 t = goal.getOrigin();
-	tf::Quaternion q = goal.getRotation();
+	static tf::TransformListener listener;
+	
+	tf::StampedTransform g_mapToOdom;
+	try
+	{
+		listener.lookupTransform("/map", "/youbot/odom", ros::Time(0), g_mapToOdom);
+	}
+	catch(tf::TransformException e)
+	{
+		std::cerr << std::endl;
+		std::cerr << "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" << std::endl;
+		std::cerr << "Error getting transform through tf:" << std::endl;
+		std::cerr << e.what() << std::endl;
+		std::cerr << std::endl;
+		std::cerr << "Setting to identity matrix" << std::endl;
+		std::cerr << "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" << std::endl;
+		std::cerr << std::endl;
 
-	std::cerr << "Preparing to publish move goal." << std::endl;
-	geometry_msgs::PoseStamped goalPose;
-	goalPose.header.stamp = ros::Time::now();
-	goalPose.header.frame_id = "map";
+		tf::Vector3 t( 0, 0, 0 );
+		g_mapToOdom.setOrigin( t );
+		g_mapToOdom.setBasis( tf::Matrix3x3::getIdentity() );
+	}
 
-	goalPose.pose.position.x = t.getX();
-	goalPose.pose.position.y = t.getY();
-
-	/*
-	goalPose.pose.orientation.x = q.getX();
-	goalPose.pose.orientation.y = q.getY();
-	goalPose.pose.orientation.z = q.getZ();
-	*/
-	goalPose.pose.orientation.w = q.getW();
-
-	std::cerr << "Publishing to /move_base_goal/simple" << std::endl;
-	moveBaseGoalPub.publish(goalPose);
+	moveToAbsolutePosition( g_mapToOdom * currentOdom * g );
 }
 
 void odom_callback(const nav_msgs::Odometry& odom)
@@ -486,9 +494,11 @@ int main( int argc, char** argv )
 				// First let's save our starting position so we can return to it.
 				g_StartingPose_w = currentOdom;
 				
-				// Drive the base next to the block.
+				// Drive the base next to the block.  Make sure we don't rotate
+				// based on the rotation matrix of the block itself.
 				tf::Transform goal = g_baseToBlock;
 				goal.getOrigin().setY( goal.getOrigin().getY() - 0.5 );
+				goal.setBasis( tf::Matrix3x3::getIdentity() );
 
 				moveRelativeToBaseLink(goal);
 				currentState = NavigatingToBlock;
@@ -574,11 +584,14 @@ int main( int argc, char** argv )
 			std::cerr << "navGoalStatus:  " << navGoalStatus << std::endl;
 			std::cerr << "Publishing goal and waiting for status to change" << std::endl;
 
+			tf::Vector3 t( 0, 0, 0 );
+			
 			tf::Matrix3x3 r;
 			r.setRPY(0, 0, PI);
 			
 			tf::Transform g_yawed;
 			g_yawed.setBasis(r);
+			g_yawed.setOrigin(t);
 
 			moveRelativeToBaseLink(g_yawed);
 
@@ -611,7 +624,6 @@ int main( int argc, char** argv )
 
 		case InitiatingReturnToStart:
 		{
-			/*
 			std::cerr << std::endl;
 			std::cerr << "Entering InitiatingReturnToStart state" << std::endl;
 			std::cerr << "navGoalStatus:  " << navGoalStatus << std::endl;
@@ -628,7 +640,7 @@ int main( int argc, char** argv )
 			std::cerr << "Exiting InitiatingReturnToStart" << std::endl;
 			std::cerr << std::endl;
 			std::cerr << "Entering ReturningToStart state" << std::endl;
-			*/
+
 			break;
 		}
 		
