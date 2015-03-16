@@ -1,7 +1,7 @@
 <launch>
 
   <!-- /////////////////////// -->
-  <!--        Parameters       -->
+  <!--      Args / Params      -->
   <!-- /////////////////////// -->
 
   <!-- By default, we do not start a database (it can be large) -->
@@ -10,7 +10,10 @@
   <!-- By default, we are not in debug mode -->
   <arg name="debug" default="false" />
 
-  <param name="using_gazebo" value="true"/>
+  <!-- By default we will launch Gazebo since this is a testing setup -->
+  <arg name="launch_gazebo" default="true"/>
+
+  <param name="using_gazebo" value="$(arg launch_gazebo)"/>
 
 
   <!-- /////////////////////// -->
@@ -28,7 +31,8 @@
   <!--          Gazebo         -->
   <!-- /////////////////////// -->
 
-  <include file="$(find youbot_object_grasp)/launch/youbot_gazebo.launch"/>
+  <!-- Only launch this if we have set the flag for using Gazebo -->
+  <include file="$(find youbot_object_grasp)/launch/youbot_gazebo.launch" if="$(arg launch_gazebo)"/>
 
 
   <!-- /////////////////////// -->
