@@ -4,7 +4,8 @@
   <!--      Args / Params      -->
   <!-- /////////////////////// -->
 
-  <arg name="port" default="/dev/ttyACM0" />
+  <arg name="port" default="/dev/ttyACM0"/>
+  <arg name="debug" default="false"/>
   <arg name="youbot_xacro" default="$(find youbot_description)/robots/youbot.urdf.xacro"/>
   <param name="robot_description" command="$(find xacro)/xacro.py '$(arg youbot_xacro)'"/>
 
