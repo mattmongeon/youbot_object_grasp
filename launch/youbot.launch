@@ -28,8 +28,8 @@
   <!-- /////////////////////// -->
 
   <!-- Static transforms for the laser -->
-  <node pkg="tf" type="static_transform_publisher" name="laser_scan_pub" args="0.3 0.0 0.08 0.0 0.0 0.0 base_footprint laser 50" />
-  <node pkg="tf" type="static_transform_publisher" name="base_link_pub" args="0.0 0.0 0.0 0.0 0.0 0.0 base_footprint base_link 50" />
+  <!--node pkg="tf" type="static_transform_publisher" name="laser_scan_pub" args="0.3 0.0 0.08 0.0 0.0 0.0 base_footprint laser 50" /-->
+  <!--node pkg="tf" type="static_transform_publisher" name="base_link_pub" args="0.0 0.0 0.0 0.0 0.0 0.0 base_footprint base_link 50" /-->
 
   <node pkg="hokuyo_node" type="hokuyo_node" name="laser_driver_node" >
     <param name="max_ang" value="1.57" />
@@ -39,6 +39,8 @@
 
   <node pkg="amcl" type="amcl" name="amcl" output="screen">
   	<param name="base_frame_id" value="base_link" />
+	<param name="global_frame_id" value="map"/>
+	<param name="odom_model_type" value="omni"/>
   </node>
 
 
