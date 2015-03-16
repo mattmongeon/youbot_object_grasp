@@ -99,7 +99,7 @@
   <!-- /////////////////////// -->
 
   <node name="arm_control" pkg="youbot_object_grasp" type="arm_control" output="screen">
-	<param name="odom_frame_id" value="/youbot/odom"/>
+	<param name="odom_frame_id" value="/youbot/odom" if="$(arg launch_gazebo)"/>
 	<remap from="/cmd_vel" to="/youbot/cmd_vel" if="$(arg launch_gazebo)"/>
 	<remap from="/odom" to="/youbot/odom" if="$(arg launch_gazebo)"/>
   </node>
@@ -112,5 +112,5 @@
   <!-- Choose the proper one depending on if we are launching Gazebo or not. -->
   <include file="$(find pcl_auto_seg)/launch/pcl_tut_temp_align.launch" if="$(arg launch_gazebo)"/>
   <include file="$(find pcl_auto_seg)/launch/seg_block.launch" unless="$(arg launch_gazebo)"/>
-
+  
 </launch>
