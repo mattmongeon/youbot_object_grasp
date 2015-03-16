@@ -10,6 +10,8 @@
   <!-- By default, we are not in debug mode -->
   <arg name="debug" default="false" />
 
+  <param name="using_gazebo" value="true"/>
+
 
   <!-- /////////////////////// -->
   <!--     State Publishers    -->
