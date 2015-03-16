@@ -4,8 +4,6 @@
 #include <geometry_msgs/Pose.h>
 #include <geometry_msgs/Twist.h>
 #include <nav_msgs/Odometry.h>
-#include <move_base_msgs/MoveBaseAction.h>
-#include <actionlib/client/simple_action_client.h>
 #include <actionlib_msgs/GoalStatusArray.h>
 #include <std_msgs/Float64.h>
 #include <tf/LinearMath/Transform.h>
@@ -13,6 +11,9 @@
 #include <tf/LinearMath/Vector3.h>
 #include <tf/LinearMath/Matrix3x3.h>
 #include <tf/transform_listener.h>
+
+#include "youbot_object_grasp/arm_interface_gazebo.h"
+#include "youbot_object_grasp/arm_interface_youbot.h"
 
 #include <iostream>
 #include <vector>
@@ -25,13 +26,10 @@ const double PI = 3.14159265358979323846;
 
 // --- ROS Stuff --- //
 
-const std::string PLUGIN = "youbot_arm_kinematics_moveit::KinematicsPlugin";
-typedef boost::shared_ptr<kinematics::KinematicsBase> KinematicsBasePtr;
-ros::Publisher armJoint1;
-ros::Publisher armJoint2;
-ros::Publisher armJoint3;
-ros::Publisher armJoint4;
-ros::Publisher armJoint5;
+bool usingGazebo = false;
+
+cArmInterface* pArmInterface;
+
 ros::Publisher baseVelPub;
 
 ros::Subscriber blockPoseSub;
@@ -39,6 +37,7 @@ ros::Subscriber odomSub;
 ros::Subscriber moveBaseGoalStatusSub;
 
 tf::TransformListener* listener;
+
 
 // --- Helper transformation matrices --- //
 
@@ -83,9 +82,6 @@ bool targetSet = false;
 
 // --- Nav Stuff --- //
 
-typedef actionlib::SimpleActionClient<move_base_msgs::MoveBaseAction> MoveBaseClient;
-move_base_msgs::MoveBaseGoal goal;
-
 ros::Publisher moveBaseGoalPub;
 
 tf::Transform currentOdom;
@@ -116,7 +112,7 @@ tf::Transform g_baseToBlock;
 int navGoalStatus = 0;
 
 
-void initialize(KinematicsBasePtr kinematics)
+void initialize()
 {
 	tf::Matrix3x3 rot;
 	tf::Vector3 t;
@@ -210,85 +206,6 @@ void initialize(KinematicsBasePtr kinematics)
 
 	g_startGraspLeft90Deg_05.setRotation(q);
 	g_startGraspLeft90Deg_05.setOrigin(t);
-}
-
-
-void positionArm_fk(const std::vector<double>& angles)
-{
-	std::cerr << "Publishing joint angles:" << std::endl;
-	std_msgs::Float64 v0;
-	std::cerr << "\tJoint 1:  " << angles[0] << std::endl;
-	v0.data = angles[0];
-	armJoint1.publish(v0);
-
-	std_msgs::Float64 v1;
-	std::cerr << "\tJoint 2:  " << angles[1] << std::endl;
-	v1.data = angles[1];
-	armJoint2.publish(v1);
-
-	std_msgs::Float64 v2;
-	std::cerr << "\tJoint 3:  " << angles[2] << std::endl;
-	v2.data = angles[2];
-	armJoint3.publish(v2);
-
-	std_msgs::Float64 v3;
-	std::cerr << "\tJoint 4:  " << angles[3] << std::endl;
-	v3.data = angles[3];
-	armJoint4.publish(v3);
-
-	std_msgs::Float64 v4;
-	std::cerr << "\tJoint 5:  " << angles[4] << std::endl;
-	v4.data = angles[4];
-	armJoint5.publish(v4);
-	std::cerr << std::endl;
-}
-
-
-void positionArm_ik(KinematicsBasePtr kinematics, const tf::Transform& g, double* seedVals)
-{
-	std::vector<double> seed;
-	seed.push_back(seedVals[0]);
-	seed.push_back(seedVals[1]);
-	seed.push_back(seedVals[2]);
-	seed.push_back(seedVals[3]);
-	seed.push_back(seedVals[4]);
-    std::vector<double> solution;
-    moveit_msgs::MoveItErrorCodes error_code;
-
-	// Candle position.
-    // pose.position.x = 0.057;
-    // pose.position.y = 0.0;
-    // pose.position.z = 0.535;
-
-	const tf::Vector3& position = g.getOrigin();
-    geometry_msgs::Pose pose;
-	pose.position.x = position.getX();
-	pose.position.y = position.getY();
-	pose.position.z = position.getZ();
-
-	const tf::Matrix3x3& rot = g.getBasis();
-	tf::Quaternion q;
-	rot.getRotation( q );
-	pose.orientation.w = q.getW();
-	pose.orientation.x = q.getX();
-	pose.orientation.y = q.getY();
-	pose.orientation.z = q.getZ();
-
-    if( kinematics->getPositionIK(pose, seed, solution, error_code) )
-	{
-		std::cerr << "Found a solution" << std::endl;
-		std::cerr << "Size of solution:  " << solution.size() << std::endl;
-		for( std::size_t i = 0; i < solution.size(); ++i )
-		{
-			std::cerr << "Joint " << i << ":  " << solution[i] << std::endl;
-		}
-
-		positionArm_fk( solution );
-	}
-	else
-	{
-		std::cerr << "NO SOLUTION" << std::endl;
-	}
 }
 
 
@@ -439,13 +356,19 @@ int main( int argc, char** argv )
 	ros::init(argc, argv, "arm_control");
     ros::NodeHandle nh;
 
+	ros::param::get("/using_gazebo", usingGazebo);
 	
 	std::cerr << "Creating publishers." << std::endl;
-	armJoint1 = nh.advertise<std_msgs::Float64>( "/youbot/arm_joint_1_position_controller/command", 1 );
-	armJoint2 = nh.advertise<std_msgs::Float64>( "/youbot/arm_joint_2_position_controller/command", 1 );
-	armJoint3 = nh.advertise<std_msgs::Float64>( "/youbot/arm_joint_3_position_controller/command", 1 );
-	armJoint4 = nh.advertise<std_msgs::Float64>( "/youbot/arm_joint_4_position_controller/command", 1 );
-	armJoint5 = nh.advertise<std_msgs::Float64>( "/youbot/arm_joint_5_position_controller/command", 1 );
+	if( usingGazebo )
+	{
+		std::cerr << "\tUsing Gazebo interface" << std::endl;
+		pArmInterface = new cArmInterfaceGazebo(nh);
+	}
+	else
+	{
+		std::cerr << "\tUsing youBot interface" << std::endl;
+		pArmInterface = new cArmInterfaceYoubot(nh);
+	}
 
 	baseVelPub = nh.advertise<geometry_msgs::Twist>( "/youbot/cmd_vel", 1 );
 
@@ -467,18 +390,17 @@ int main( int argc, char** argv )
 		ros::Duration(1).sleep();
 	}
 
-
-	std::cerr << "Creating kinematics object." << std::endl;
-    pluginlib::ClassLoader<kinematics::KinematicsBase> loader("moveit_core", "kinematics::KinematicsBase");
-    KinematicsBasePtr kinematics = loader.createInstance(PLUGIN);
-	kinematics->initialize("/robot_description", "arm_1", "arm_link_0", "arm_link_5", 0.1);
-	
-	
 	std::cerr << "Initializing matrices and other things." << std::endl;
-	initialize(kinematics);
+	initialize();
 	
 	std::cerr << "Driving arm to camera position." << std::endl;
-	positionArm_ik( kinematics, g_cameraSearch_05, seedCameraSearch );
+	std::vector<double> seedVals;
+	seedVals.push_back(seedCameraSearch[0]);
+	seedVals.push_back(seedCameraSearch[1]);
+	seedVals.push_back(seedCameraSearch[2]);
+	seedVals.push_back(seedCameraSearch[3]);
+	seedVals.push_back(seedCameraSearch[4]);
+	pArmInterface->PositionArm( g_cameraSearch_05, seedVals );
 
 	currentState = WaitingForBlock;
 	while(ros::ok())
@@ -522,7 +444,12 @@ int main( int argc, char** argv )
 			std::cerr << std::endl;
 			std::cerr << "Entering MovingArmToSearchPose state" << std::endl;
 			std::cerr << "Moving arm to search pose." << std::endl;
-			positionArm_ik( kinematics, g_startGraspLeft90Deg_05, seedGraspLeft90Deg );
+			seedVals.clear();
+			for( std::size_t i = 0; i < 5; ++i )
+			{
+				seedVals.push_back(seedGraspLeft90Deg[i]);
+			}
+			pArmInterface->PositionArm( g_startGraspLeft90Deg_05, seedVals );
 			currentState = AligningToBlock;
 			std::cerr << "Exiting MovingArmToSearchPose state" << std::endl;
 			break;
@@ -551,7 +478,12 @@ int main( int argc, char** argv )
 			translate.getOrigin().setZ( translate.getOrigin().getZ() + 0.05 );
 
 			std::cerr << "Translating along search pose." << std::endl;
-			positionArm_ik( kinematics, g_startGraspLeft90Deg_05 * translate, seedGraspLeft90Deg );
+			seedVals.clear();
+			for( std::size_t i = 0; i < 5; ++i )
+			{
+				seedVals.push_back(seedGraspLeft90Deg[i]);
+			}
+			pArmInterface->PositionArm( g_startGraspLeft90Deg_05 * translate, seedVals );
 			ros::Duration(3.0).sleep();  // Allow the arm to translate so we see it.
 			currentState = PuttingArmInCarryPose;
 			std::cerr << "Exiting GraspingBlock state" << std::endl;
@@ -564,7 +496,12 @@ int main( int argc, char** argv )
 			std::cerr << std::endl;
 			std::cerr << "Entered PuttingArmInCarryPose state" << std::endl;
 			std::cerr << "Driving arm to carry pose." << std::endl;
-			positionArm_ik( kinematics, g_cameraSearch_05, seedCameraSearch );
+			seedVals.clear();
+			for( std::size_t i = 0; i < 5; ++i )
+			{
+				seedVals.push_back(seedCameraSearch[i]);
+			}
+			pArmInterface->PositionArm( g_cameraSearch_05, seedVals );
 			std::cerr << "Waiting 3 seconds to allow arm to reach pose" << std::endl;
 			ros::Duration(3.0).sleep();  // Allow the arm to reach the pose.
 			currentState = InitiatingReturnToStart;
