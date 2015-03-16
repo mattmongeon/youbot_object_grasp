@@ -85,7 +85,7 @@ find_package(catkin REQUIRED COMPONENTS
 ## CATKIN_DEPENDS: catkin_packages dependent projects also need
 ## DEPENDS: system dependencies of this project that dependent projects also need
 catkin_package(
-#  INCLUDE_DIRS include
+  INCLUDE_DIRS include
 #  LIBRARIES youbot_object_grasp
 #  CATKIN_DEPENDS roscpp rospy std_msgs
 #  DEPENDS system_lib
@@ -100,6 +100,7 @@ catkin_package(
 # include_directories(include)
 include_directories(
   ${catkin_INCLUDE_DIRS}
+  include
 )
 
 ## Declare a cpp library
@@ -108,7 +109,11 @@ include_directories(
 # )
 
 ## Declare a cpp executable
-add_executable(arm_control src/arm_control.cpp)
+add_executable(arm_control 
+  src/arm_control.cpp
+  src/arm_interface.cpp
+  src/arm_interface_gazebo.cpp
+  src/arm_interface_youbot.cpp)
 add_executable(odom_tf_pub src/odom_tf_pub.cpp)
 
 ## Add cmake target dependencies of the executable/library
