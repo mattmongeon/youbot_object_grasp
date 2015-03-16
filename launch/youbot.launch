@@ -1,0 +1,79 @@
+<launch>
+
+  <!-- /////////////////////// -->
+  <!--      Args / Params      -->
+  <!-- /////////////////////// -->
+
+  <arg name="port" default="/dev/ttyACM0" />
+  <param name="robot_description" textfile="$(find youbot_grasp_msr)/urdf/youbot_virtual.urdf"/>
+
+
+  <!-- /////////////////////// -->
+  <!--      youBot Driver      -->
+  <!-- /////////////////////// -->
+
+  <include file="$(find youbot_driver_ros_interface)/launch/youbot_driver.launch"/>
+
+
+  <!-- /////////////////////// -->
+  <!--     State Publishers    -->
+  <!-- /////////////////////// -->
+
+  <node name="robot_state_publisher" pkg="robot_state_publisher" type="state_publisher"/>
+  
+
+  <!-- /////////////////////// -->
+  <!--          Laser          -->
+  <!-- /////////////////////// -->
+
+  <!-- Static transforms for the laser -->
+  <node pkg="tf" type="static_transform_publisher" name="laser_scan_pub" args="0.3 0.0 0.08 0.0 0.0 0.0 base_footprint laser 50" />
+  <node pkg="tf" type="static_transform_publisher" name="base_link_pub" args="0.0 0.0 0.0 0.0 0.0 0.0 base_footprint base_link 50" />
+
+  <node pkg="hokuyo_node" type="hokuyo_node" name="laser_driver_node" >
+    <param name="max_ang" value="1.57" />
+    <param name="min_ang" value="-1.57" />
+    <param name="port" value="$(arg port)" />
+  </node>
+
+  <node pkg="amcl" type="amcl" name="amcl" output="screen">
+  	<param name="base_frame_id" value="base_link" />
+  </node>
+
+
+  <!-- /////////////////////// -->
+  <!--        navstack         -->
+  <!-- /////////////////////// -->
+  
+  <!-- Move base -->
+  <node pkg="move_base" type="move_base" respawn="false" name="move_base" output="screen">
+    <param name="base_global_planner" value="navfn/NavfnROS" />  
+	<rosparam file="$(find youbot_object_grasp)/config/global_costmap_params.yaml" command="load" ns="global_costmap" />
+	<rosparam file="$(find youbot_object_grasp)/config/costmap_params.yaml" command="load" ns="local_costmap" />
+	<rosparam file="$(find youbot_object_grasp)/config/move_base_params.yaml" command="load" />
+	<rosparam file="$(find youbot_object_grasp)/config/eband_planner_params.yaml" command="load"/>
+
+    <param name="base_local_planner" value="eband_local_planner/EBandPlannerROS" />
+
+    <remap from="cmd_vel" to="/cmd_vel"/>
+    <remap from="odom" to="/odom"/>
+  </node>
+
+  <node pkg="map_server" type="map_server" name="map_server" args="$(find youbot_object_grasp)/config/d110.yaml" />
+  
+  <node name="odom_tf_pub" pkg="youbot_object_grasp" type="odom_tf_pub" output="screen"/>
+
+
+  <!-- /////////////////////// -->
+  <!--         MoveIt!         -->
+  <!-- /////////////////////// -->
+
+  <!-- Run the main MoveIt executable without trajectory execution (we do not have controllers configured by default) -->
+  <include file="$(find youbot_moveit)/launch/move_group.launch">
+    <arg name="allow_trajectory_execution" value="true"/>  
+    <arg name="fake_execution" value="true"/>
+    <arg name="info" value="true"/>
+    <arg name="debug" value="$(arg debug)"/>
+  </include>
+
+</launch>
