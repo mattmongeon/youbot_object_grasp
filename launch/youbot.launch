@@ -5,7 +5,8 @@
   <!-- /////////////////////// -->
 
   <arg name="port" default="/dev/ttyACM0" />
-  <param name="robot_description" textfile="$(find youbot_grasp_msr)/urdf/youbot_virtual.urdf"/>
+  <arg name="youbot_xacro" default="$(find youbot_description)/robots/youbot.urdf.xacro"/>
+  <param name="robot_description" command="$(find xacro)/xacro.py '$(arg youbot_xacro)"/>
 
 
   <!-- /////////////////////// -->
