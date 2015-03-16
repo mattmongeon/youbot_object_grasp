@@ -29,8 +29,8 @@
   <!-- /////////////////////// -->
 
   <!-- Static transforms for the laser -->
-  <!--node pkg="tf" type="static_transform_publisher" name="laser_scan_pub" args="0.3 0.0 0.08 0.0 0.0 0.0 base_footprint laser 50" /-->
-  <!--node pkg="tf" type="static_transform_publisher" name="base_link_pub" args="0.0 0.0 0.0 0.0 0.0 0.0 base_footprint base_link 50" /-->
+  <node pkg="tf" type="static_transform_publisher" name="laser_scan_pub" args="0.3 0.0 0.08 0.0 0.0 0.0 base_footprint laser 50" />
+  <node pkg="tf" type="static_transform_publisher" name="base_link_pub" args="0.0 0.0 0.0 0.0 0.0 0.0 base_footprint base_link 50" />
 
   <node pkg="hokuyo_node" type="hokuyo_node" name="laser_driver_node" >
     <param name="max_ang" value="1.57" />
@@ -58,9 +58,6 @@
 	<rosparam file="$(find youbot_object_grasp)/config/eband_planner_params.yaml" command="load"/>
 
     <param name="base_local_planner" value="eband_local_planner/EBandPlannerROS" />
-
-    <remap from="cmd_vel" to="/cmd_vel"/>
-    <remap from="odom" to="/odom"/>
   </node>
 
   <node pkg="map_server" type="map_server" name="map_server" args="$(find youbot_object_grasp)/config/d110.yaml" />
