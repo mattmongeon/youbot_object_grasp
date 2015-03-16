@@ -38,6 +38,8 @@ ros::Subscriber moveBaseGoalStatusSub;
 
 tf::TransformListener* listener;
 
+std::string odomFrameName;
+
 
 // --- Helper transformation matrices --- //
 
@@ -308,7 +310,7 @@ void moveRelativeToBaseLink( const tf::Transform& g )
 	tf::StampedTransform g_mapToOdom;
 	try
 	{
-		listener->lookupTransform("/map", "/youbot/odom", ros::Time(0), g_mapToOdom);
+		listener->lookupTransform("/map", odomFrameName, ros::Time(0), g_mapToOdom);
 	}
 	catch(tf::TransformException e)
 	{
@@ -354,11 +356,17 @@ void move_base_status_callback( const actionlib_msgs::GoalStatusArray& status )
 int main( int argc, char** argv )
 {
 	ros::init(argc, argv, "arm_control");
-    ros::NodeHandle nh;
+    ros::NodeHandle nh("~");
 
-	ros::param::get("/using_gazebo", usingGazebo);
+	// --- Parameters --- //
 	
-	std::cerr << "Creating publishers." << std::endl;
+	ros::param::get("/using_gazebo", usingGazebo);
+	nh.param("odom_frame_id", odomFrameName, std::string("/odom"));
+
+
+	// --- Arm Interface object --- //
+	
+	std::cerr << "Creating arm interface." << std::endl;
 	if( usingGazebo )
 	{
 		std::cerr << "\tUsing Gazebo interface" << std::endl;
@@ -370,18 +378,30 @@ int main( int argc, char** argv )
 		pArmInterface = new cArmInterfaceYoubot(nh);
 	}
 
-	baseVelPub = nh.advertise<geometry_msgs::Twist>( "/youbot/cmd_vel", 1 );
 
+	// --- Base Movement Publishers --- //
+	
+	baseVelPub = nh.advertise<geometry_msgs::Twist>( "/cmd_vel", 1 );
 	moveBaseGoalPub = nh.advertise<geometry_msgs::PoseStamped>("/move_base_simple/goal", 5, true);
 
+
+	// --- TF --- //
+	
 	listener = new tf::TransformListener();
 	
+
+	// --- Subscribers --- //
 	
 	std::cerr << "Creating subscribers." << std::endl;
     blockPoseSub = nh.subscribe( "/block_pose", 1, block_callback );
-	odomSub = nh.subscribe( "/youbot/odom", 1, odom_callback );
+	odomSub = nh.subscribe( "/odom", 1, odom_callback );
 	moveBaseGoalStatusSub = nh.subscribe( "/move_base/status", 1, move_base_status_callback );
 
+
+	// --- Initialization --- //
+
+	std::cerr << "Initializing matrices and other things." << std::endl;
+	initialize();
 	
 	std::cerr << "Waiting 5 seconds to allow everything to start up." << std::endl;
 	for( int i = 5; i > 0; --i )
@@ -390,8 +410,8 @@ int main( int argc, char** argv )
 		ros::Duration(1).sleep();
 	}
 
-	std::cerr << "Initializing matrices and other things." << std::endl;
-	initialize();
+
+	// --- Begin --- //
 	
 	std::cerr << "Driving arm to camera position." << std::endl;
 	std::vector<double> seedVals;
@@ -401,6 +421,7 @@ int main( int argc, char** argv )
 	seedVals.push_back(seedCameraSearch[3]);
 	seedVals.push_back(seedCameraSearch[4]);
 	pArmInterface->PositionArm( g_cameraSearch_05, seedVals );
+	ros::Duration(3).sleep();  // Wait for the arm to get to the position.
 
 	currentState = WaitingForBlock;
 	while(ros::ok())
