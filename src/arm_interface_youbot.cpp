@@ -1,6 +1,7 @@
 #include "youbot_object_grasp/arm_interface_youbot.h"
 #include <brics_actuator/JointPositions.h>
 #include <brics_actuator/JointValue.h>
+#include <iostream>
 #include <sstream>
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -10,8 +11,8 @@
 cArmInterfaceYoubot::cArmInterfaceYoubot(ros::NodeHandle& nh)
 	: cArmInterface()
 {
-	mArmJointsPub = nh.advertise<brics_actuator::JointPositions>("arm_1/arm_controller/position_command", 1);
-	mGripperPub = nh.advertise<brics_actuator::JointPositions>("arm_1/gripper_controller/position_command", 1);
+	mArmJointsPub = nh.advertise<brics_actuator::JointPositions>("/arm_1/arm_controller/position_command", 1);
+	mGripperPub = nh.advertise<brics_actuator::JointPositions>("/arm_1/gripper_controller/position_command", 1);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -26,7 +27,7 @@ void cArmInterfaceYoubot::PublishJointValues(const std::vector<double>& values)
 		brics_actuator::JointValue val;
 		
 		std::ostringstream jointName;
-		jointName << "arm_joint_" << i;
+		jointName << "arm_joint_" << i+1;
 		val.joint_uri = jointName.str();
 		val.unit = "rad";
 		val.value = values[i];
