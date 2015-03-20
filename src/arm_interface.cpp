@@ -46,7 +46,7 @@ bool cArmInterface::PositionArm(const tf::Transform& g, const std::vector<double
 		std::cerr << "Size of solution:  " << solution.size() << std::endl;
 		for( std::size_t i = 0; i < solution.size(); ++i )
 		{
-			std::cerr << "Joint " << i << ":  " << solution[i] << std::endl;
+			std::cerr << "Joint " << i+1 << ":  " << solution[i] << std::endl;
 		}
 
 		PublishJointValues(solution);
