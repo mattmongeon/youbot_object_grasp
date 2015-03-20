@@ -15,8 +15,8 @@ EBandPlannerROS:
   max_rotational_acceleration: 3.0
 
   # goal tolerance
-  yaw_goal_tolerance: 0.05
-  xy_goal_tolerance: 0.05
+  yaw_goal_tolerance: 0.1
+  xy_goal_tolerance: 0.1
 
   # angular velocity PID
   k_prop: 0.5
