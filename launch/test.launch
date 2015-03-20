@@ -11,7 +11,7 @@
   <arg name="debug" default="false" />
 
   <!-- By default we will launch Gazebo since this is a testing setup -->
-  <arg name="launch_gazebo" default="true"/>
+  <arg name="launch_gazebo" default="false"/>
 
   <param name="using_gazebo" value="$(arg launch_gazebo)"/>
 
@@ -46,10 +46,10 @@
 
 	<node pkg="move_base" type="move_base" respawn="false" name="move_base" output="screen">
 	  <param name="base_global_planner" value="navfn/NavfnROS"/>
-	  <rosparam file="$(find youbot_object_grasp)/config/global_costmap_params.yaml" command="load" ns="global_costmap"/>
-	  <rosparam file="$(find youbot_object_grasp)/config/costmap_params.yaml" command="load" ns="local_costmap"/>
-	  <rosparam file="$(find youbot_object_grasp)/config/move_base_params.yaml" command="load"/>
-	  <rosparam file="$(find youbot_object_grasp)/config/eband_planner_params.yaml" command="load"/>
+	  <rosparam file="$(find youbot_object_grasp)/config/gazebo/global_costmap_params.yaml" command="load" ns="global_costmap"/>
+	  <rosparam file="$(find youbot_object_grasp)/config/gazebo/costmap_params.yaml" command="load" ns="local_costmap"/>
+	  <rosparam file="$(find youbot_object_grasp)/config/gazebo/move_base_params.yaml" command="load"/>
+	  <rosparam file="$(find youbot_object_grasp)/config/gazebo/eband_planner_params.yaml" command="load"/>
 
 	  <param name="base_local_planner" value="eband_local_planner/EBandPlannerROS"/>
 
