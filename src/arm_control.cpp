@@ -39,6 +39,7 @@ ros::Subscriber moveBaseGoalStatusSub;
 tf::TransformListener* listener;
 
 std::string odomFrameName;
+std::string globalFrameName;
 
 
 // --- Helper transformation matrices --- //
@@ -285,7 +286,7 @@ void moveToAbsolutePosition( const tf::Transform& g )
 	std::cerr << "Preparing to publish move goal." << std::endl;
 	geometry_msgs::PoseStamped goalPose;
 	goalPose.header.stamp = ros::Time::now();
-	goalPose.header.frame_id = "map";
+	goalPose.header.frame_id = globalFrameName;
 
 	goalPose.pose.position.x = t.getX();
 	goalPose.pose.position.y = t.getY();
@@ -307,25 +308,33 @@ void moveToAbsolutePosition( const tf::Transform& g )
 
 void moveRelativeToBaseLink( const tf::Transform& g )
 {
+	// At some point we might be using the map frame as our global frame.
+	// At other times we are simply using odom.  We will assume we are using
+	// the odom frame and initialize this transformation matrix to be an
+	// identity matrix.  If we are using something other than odom, we can
+	// use TF to get the transform.
 	tf::StampedTransform g_mapToOdom;
-	try
+	tf::Vector3 t( 0, 0, 0 );
+	g_mapToOdom.setOrigin( t );
+	g_mapToOdom.setBasis( tf::Matrix3x3::getIdentity() );
+	
+	if( globalFrameName != "odom" )
 	{
-		listener->lookupTransform("/map", odomFrameName, ros::Time(0), g_mapToOdom);
-	}
-	catch(tf::TransformException e)
-	{
-		std::cerr << std::endl;
-		std::cerr << "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" << std::endl;
-		std::cerr << "Error getting transform through tf:" << std::endl;
-		std::cerr << e.what() << std::endl;
-		std::cerr << std::endl;
-		std::cerr << "Setting to identity matrix" << std::endl;
-		std::cerr << "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" << std::endl;
-		std::cerr << std::endl;
-
-		tf::Vector3 t( 0, 0, 0 );
-		g_mapToOdom.setOrigin( t );
-		g_mapToOdom.setBasis( tf::Matrix3x3::getIdentity() );
+		try
+		{
+			listener->lookupTransform(globalFrameName, odomFrameName, ros::Time(0), g_mapToOdom);
+		}
+		catch(tf::TransformException e)
+		{
+			std::cerr << std::endl;
+			std::cerr << "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" << std::endl;
+			std::cerr << "Error getting transform through tf:" << std::endl;
+			std::cerr << e.what() << std::endl;
+			std::cerr << std::endl;
+			std::cerr << "Setting to identity matrix" << std::endl;
+			std::cerr << "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" << std::endl;
+			std::cerr << std::endl;
+		}
 	}
 
 	moveToAbsolutePosition( g_mapToOdom * currentOdom * g );
@@ -362,6 +371,7 @@ int main( int argc, char** argv )
 	
 	ros::param::get("/using_gazebo", usingGazebo);
 	nh.param("odom_frame_id", odomFrameName, std::string("/odom"));
+	nh.param("global_frame_id", globalFrameName, std::string("odom"));
 
 
 	// --- Arm Interface object --- //

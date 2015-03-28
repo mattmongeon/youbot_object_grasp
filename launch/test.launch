@@ -127,6 +127,7 @@
 
   <node name="arm_control" pkg="youbot_object_grasp" type="arm_control" output="screen">
 	<param name="odom_frame_id" value="/youbot/odom" if="$(arg launch_gazebo)"/>
+	<param name="global_frame_id" value="/map" if="$(arg launch_gazebo)"/>
 	<remap from="/cmd_vel" to="/youbot/cmd_vel" if="$(arg launch_gazebo)"/>
 	<remap from="/odom" to="/youbot/odom" if="$(arg launch_gazebo)"/>
   </node>
