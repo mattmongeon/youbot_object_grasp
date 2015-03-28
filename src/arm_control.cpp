@@ -447,7 +447,12 @@ int main( int argc, char** argv )
 				// Drive the base next to the block.  Make sure we don't rotate
 				// based on the rotation matrix of the block itself.
 				tf::Transform goal = g_baseToBlock;
-				goal.getOrigin().setY( goal.getOrigin().getY() - 0.5 );
+				goal.getOrigin().setX( goal.getOrigin().getX() - 0.25 );
+				if( goal.getOrigin().getY() < 0.0 )
+				  goal.getOrigin().setY( goal.getOrigin().getY() + 0.25 );
+				else
+				  goal.getOrigin().setY( goal.getOrigin().getY() - 0.25 );
+
 				goal.setBasis( tf::Matrix3x3::getIdentity() );
 
 				moveRelativeToBaseLink(goal);
