@@ -1,12 +1,17 @@
-  global_frame: /map
+  global_frame: /odom
   robot_base_frame: /base_footprint
+
   update_frequency: 5.0
-  static_map: true
+  publish_frequency: 5.0
+  static_map: false
   origin_x: -10.0
   origin_y: -10.0
   origin_z: 0.0
+
+  rolling_window: true
   width: 20.0
   height: 20.0
+  resolution: 0.025
 
 
   transform_tolerance: 0.1
