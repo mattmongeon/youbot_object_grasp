@@ -3,6 +3,7 @@
 #include <ros/ros.h>
 #include <geometry_msgs/Pose.h>
 #include <geometry_msgs/Twist.h>
+#include <geometry_msgs/Vector3.h>
 #include <nav_msgs/Odometry.h>
 #include <actionlib_msgs/GoalStatusArray.h>
 #include <std_msgs/Float64.h>
@@ -35,6 +36,7 @@ ros::Publisher baseVelPub;
 ros::Subscriber blockPoseSub;
 ros::Subscriber odomSub;
 ros::Subscriber moveBaseGoalStatusSub;
+ros::Subscriber floorNormalSub;
 
 tf::TransformListener* listener;
 
@@ -76,13 +78,6 @@ tf::Transform g_startGraspLeft45Deg_05;
 tf::Transform g_StartingPose_w;
 
 
-// --- Target Position --- //
-
-double targetX_m = 0.0;
-double targetY_m = 0.0;
-bool targetSet = false;
-
-
 // --- Nav Stuff --- //
 
 ros::Publisher moveBaseGoalPub;
@@ -108,6 +103,7 @@ enum ProcessState
 
 ProcessState currentState = Initializing;
 
+bool cameraCalibrated = false;
 bool blockFound = false;
 
 tf::Transform g_baseToBlock;
@@ -121,7 +117,9 @@ void initialize()
 	tf::Vector3 t;
 	
 	// --- arm_link_5 to ASUS center --- //
-	
+
+	// Initialize the transformation for arm_lin_5 -> ASUS.  The rotation will
+	// later be automatically calibrated.
 	rot.setValue(0.0, -1.0, 0.0,
 				 1.0, 0.0, 0.0,
 				 0.0, 0.0, 1.0);
@@ -260,6 +258,13 @@ void block_callback(const geometry_msgs::Pose& pose)
 	std::cerr << "\tz: " << pose.position.z << std::endl;
 	std::cerr << std::endl;
 
+	if( !cameraCalibrated )
+	{
+		std::cout << "Camera not calibrated yet.  Throwing away block pose." << std::endl;
+		std::cout << std::endl;
+		return;
+	}
+
 	// Build a transformation matrix
 	g_baseToBlock = getBaseToBlockTransform(pose);
 
@@ -362,6 +367,54 @@ void move_base_status_callback( const actionlib_msgs::GoalStatusArray& status )
 	}
 }
 
+void floor_normal_callback( const geometry_msgs::Vector3& norm )
+{
+	// --- First Transform Everything To Base Frame --- //
+
+	tf::Vector3 floorNormal(norm.x, norm.y, norm.z);
+
+	// Start off as base_link -> arm_link_0
+	tf::Transform g_baseToASUS = g_base_link_to_arm0;
+
+	// Now take it from base_link -> arm_link_5
+	g_baseToASUS *= g_cameraSearch_05;
+
+	// Now take it from base_link -> ASUS frame
+	g_baseToASUS *= g_A5ToAsus;
+
+	// Now get the vector in terms of the base frame.
+	floorNormal = g_baseToASUS*floorNormal;
+
+
+	// --- Get Rotation Error --- //
+	
+	// Ultimately we want to find a quaternion such that we can transform the
+	// floor normal so that it aligns with the base z axis.
+	tf::Vector3 baseZAxis(0, 0, 1);
+	tf::Vector3 cross = baseZAxis.cross(floorNormal);
+
+	// This will give us the rotation from the base's normal vector to the floor's normal
+	// from the camera's perspective.  We want to get 
+	tf::Quaternion q( cross.getX(),
+					  cross.getY(),
+					  cross.getZ(),
+					  sqrt(floorNormal.length2()*baseZAxis.length2()) + baseZAxis.dot(floorNormal) );
+
+
+	// --- Now Apply It As A Correction --- //
+
+	tf::Transform g_Correction;
+	g_Correction.setIdentity();
+	g_Correction.setRotation(q);
+
+	// We need the inverse of this matrix so that we undo the rotation error from the floor normal to
+	// the base's coordinate frame.
+	g_A5ToAsus *= g_Correction.inverse();
+
+	
+	cameraCalibrated = true;
+}
+
 int main( int argc, char** argv )
 {
 	ros::init(argc, argv, "arm_control");
@@ -406,6 +459,7 @@ int main( int argc, char** argv )
     blockPoseSub = nh.subscribe( "/block_pose", 1, block_callback );
 	odomSub = nh.subscribe( "/odom", 1, odom_callback );
 	moveBaseGoalStatusSub = nh.subscribe( "/move_base/status", 1, move_base_status_callback );
+	floorNormalSub = nh.subscribe( "/floor_normal", 1, floor_normal_callback );
 
 
 	// --- Initialization --- //
