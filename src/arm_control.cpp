@@ -48,9 +48,7 @@ std::string globalFrameName;
 
 // These define some transformations between various links and parts of the robot.
 tf::Transform g_A5ToAsus;
-tf::Transform g_AsusToA5;
-tf::Transform g_base_link_to_arm0;
-tf::Transform g_arm0_to_base_link;
+tf::Transform g_AsusCorrection;
 
 
 // --- Poses of arm_link_5 relative to arm_link_0 --- //
@@ -105,6 +103,8 @@ ProcessState currentState = Initializing;
 
 bool cameraCalibrated = false;
 bool blockFound = false;
+tf::Transform* pGraspingTransform;
+std::vector<double> graspingSeedVals;
 
 tf::Transform g_baseToBlock;
 
@@ -118,7 +118,7 @@ void initialize()
 	
 	// --- arm_link_5 to ASUS center --- //
 
-	// Initialize the transformation for arm_lin_5 -> ASUS.  The rotation will
+	// Initialize the transformation for arm_link_5 -> ASUS.  The rotation will
 	// later be automatically calibrated.
 	rot.setValue(0.0, -1.0, 0.0,
 				 1.0, 0.0, 0.0,
@@ -129,30 +129,9 @@ void initialize()
 	g_A5ToAsus.setOrigin(t);
 
 
-	// --- ASUS center to arm_link_5 --- //
-		
-	g_AsusToA5 = g_A5ToAsus.inverse();
-
-
-	// --- base_link to arm_link_0 --- //
-
-	rot.setValue( 1.0, 0.0, 0.0,
-				  0.0, 1.0, 0.0,
-				  0.0, 0.0, 1.0 );
-	t.setValue( 0.143, 0.0, 0.046 );
-		
-	g_base_link_to_arm0.setBasis(rot);
-	g_base_link_to_arm0.setOrigin(t);
-
-
-	// --- arm_link_0 to base_link --- //
-	
-	g_arm0_to_base_link = g_base_link_to_arm0.inverse();
-
-	
 	// --- Define the Camera Search pose --- //
 
-	// This goes from base_link to arm_link_5
+	// This goes from base_link to arm_link_5.  It was found using rviz.
 	rot.setValue( 0.0, 0.0, 1.0,
 				  0.0, 1.0, 0.0,
 				  -1.0, 0.0, 0.0 );
@@ -163,6 +142,8 @@ void initialize()
 
 	// Now we will use the arm_link_0 -> base_link transformation matrix
 	// to get the camera search transformation to be from arm_link_0 to 5.
+	tf::StampedTransform g_arm0_to_base_link;
+	listener->lookupTransform("arm_link_0", "base_link", ros::Time(0), g_arm0_to_base_link);
 	g_cameraSearch_05 = g_arm0_to_base_link * g_cameraSearch_05;
 
 
@@ -223,20 +204,23 @@ tf::Transform getTransformFromPose(const geometry_msgs::Pose& pose)
 
 tf::Transform getBaseToBlockTransform(const geometry_msgs::Pose& pose_ASUStoBlock)
 {
-	// Start off as base_link -> arm_link_0
-	tf::Transform g_baseToBlock = g_base_link_to_arm0;
-
-	// Now take it from base_link -> arm_link_5
-	g_baseToBlock *= g_cameraSearch_05;
+	tf::StampedTransform g_baseToA5;
+	listener->lookupTransform("base_link", "arm_link_5", ros::Time(0), g_baseToA5);
+	
+	// Start off as base_link -> arm_link_5
+	tf::Transform g = g_baseToA5;
 
 	// Now take it from base_link -> ASUS frame
-	g_baseToBlock *= g_A5ToAsus;
+	g *= g_A5ToAsus;
+
+	// Apply the calibration factor.
+	g *= g_AsusCorrection;
 
 	// Now take it the rest of the way from base_link -> block.  The transform returned
 	// from the function is ASUS -> block.
-	g_baseToBlock *= getTransformFromPose(pose_ASUStoBlock);
-
-	return g_baseToBlock;
+	g *= getTransformFromPose(pose_ASUStoBlock);
+	
+	return g;
 }
 
 
@@ -245,18 +229,18 @@ void block_callback(const geometry_msgs::Pose& pose)
 	if( blockFound )
 		return;
 	
-	std::cerr << "Received block pose!" << std::endl;
-	std::cerr << "Quaternion:" << std::endl;
-	std::cerr << "\tw: " << pose.orientation.w << std::endl;
-	std::cerr << "\tx: " << pose.orientation.x << std::endl;
-	std::cerr << "\ty: " << pose.orientation.y << std::endl;
-	std::cerr << "\tz: " << pose.orientation.z << std::endl;
-	std::cerr << std::endl;
-	std::cerr << "Position:" << std::endl;
-	std::cerr << "\tx: " << pose.position.x << std::endl;
-	std::cerr << "\ty: " << pose.position.y << std::endl;
-	std::cerr << "\tz: " << pose.position.z << std::endl;
-	std::cerr << std::endl;
+	std::cout << "Received block pose!" << std::endl;
+	std::cout << "Quaternion:" << std::endl;
+	std::cout << "\tw: " << pose.orientation.w << std::endl;
+	std::cout << "\tx: " << pose.orientation.x << std::endl;
+	std::cout << "\ty: " << pose.orientation.y << std::endl;
+	std::cout << "\tz: " << pose.orientation.z << std::endl;
+	std::cout << std::endl;
+	std::cout << "Position:" << std::endl;
+	std::cout << "\tx: " << pose.position.x << std::endl;
+	std::cout << "\ty: " << pose.position.y << std::endl;
+	std::cout << "\tz: " << pose.position.z << std::endl;
+	std::cout << std::endl;
 
 	if( !cameraCalibrated )
 	{
@@ -269,16 +253,16 @@ void block_callback(const geometry_msgs::Pose& pose)
 	g_baseToBlock = getBaseToBlockTransform(pose);
 
 	tf::Matrix3x3 rot = g_baseToBlock.getBasis();
-	std::cerr << "Block pose relative to base frame" << std::endl;
+	std::cout << "Block pose relative to base frame" << std::endl;
 	tf::Vector3 row = rot.getRow(0);
-	std::cerr << "    | " << row.getX() << " " << row.getY() << " " << row.getZ() << " | " << std::endl;
+	std::cout << "    | " << row.getX() << " " << row.getY() << " " << row.getZ() << " | " << std::endl;
 	row = rot.getRow(1);
-	std::cerr << "R = | " << row.getX() << " " << row.getY() << " " << row.getZ() << " | " << std::endl;
+	std::cout << "R = | " << row.getX() << " " << row.getY() << " " << row.getZ() << " | " << std::endl;
 	row = rot.getRow(2);
-	std::cerr << "    | " << row.getX() << " " << row.getY() << " " << row.getZ() << " | " << std::endl;
-	std::cerr << std::endl;
+	std::cout << "    | " << row.getX() << " " << row.getY() << " " << row.getZ() << " | " << std::endl;
+	std::cout << std::endl;
 	tf::Vector3 t = g_baseToBlock.getOrigin();
-	std::cerr << "t = < " << t.getX() << ", " << t.getY() << ", " << t.getZ() << " >" << std::endl;
+	std::cout << "t = < " << t.getX() << ", " << t.getY() << ", " << t.getZ() << " >" << std::endl;
 
 	blockFound = true;
 }
@@ -288,7 +272,7 @@ void moveToAbsolutePosition( const tf::Transform& g )
 	tf::Vector3 t = g.getOrigin();
 	tf::Quaternion q = g.getRotation();
 
-	std::cerr << "Preparing to publish move goal." << std::endl;
+	std::cout << "Preparing to publish move goal." << std::endl;
 	geometry_msgs::PoseStamped goalPose;
 	goalPose.header.stamp = ros::Time::now();
 	goalPose.header.frame_id = globalFrameName;
@@ -307,7 +291,7 @@ void moveToAbsolutePosition( const tf::Transform& g )
 	goalPose.pose.orientation.z = q.getZ();
 	goalPose.pose.orientation.w = q.getW();
 
-	std::cerr << "Publishing to /move_base_goal/simple" << std::endl;
+	std::cout << "Publishing to /move_base_goal/simple" << std::endl;
 	moveBaseGoalPub.publish(goalPose);
 }
 
@@ -331,14 +315,14 @@ void moveRelativeToBaseLink( const tf::Transform& g )
 		}
 		catch(tf::TransformException e)
 		{
-			std::cerr << std::endl;
-			std::cerr << "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" << std::endl;
-			std::cerr << "Error getting transform through tf:" << std::endl;
-			std::cerr << e.what() << std::endl;
-			std::cerr << std::endl;
-			std::cerr << "Setting to identity matrix" << std::endl;
-			std::cerr << "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" << std::endl;
-			std::cerr << std::endl;
+			std::cout << std::endl;
+			std::cout << "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" << std::endl;
+			std::cout << "Error getting transform through tf:" << std::endl;
+			std::cout << e.what() << std::endl;
+			std::cout << std::endl;
+			std::cout << "Setting to identity matrix" << std::endl;
+			std::cout << "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" << std::endl;
+			std::cout << std::endl;
 		}
 	}
 
@@ -369,49 +353,45 @@ void move_base_status_callback( const actionlib_msgs::GoalStatusArray& status )
 
 void floor_normal_callback( const geometry_msgs::Vector3& norm )
 {
+	if( cameraCalibrated )
+		return;
+
 	// --- First Transform Everything To Base Frame --- //
 
 	tf::Vector3 floorNormal(norm.x, norm.y, norm.z);
 
-	// Start off as base_link -> arm_link_0
-	tf::Transform g_baseToASUS = g_base_link_to_arm0;
+	std::cout << "Floor normal" << std::endl;
+	std::cout << "    | " << floorNormal.getX() << " |" << std::endl;
+	std::cout << "    | " << floorNormal.getY() << " |" << std::endl;
+	std::cout << "    | " << floorNormal.getZ() << " |" << std::endl;
+	std::cout << std::endl;
 
-	// Now take it from base_link -> arm_link_5
-	g_baseToASUS *= g_cameraSearch_05;
-
-	// Now take it from base_link -> ASUS frame
-	g_baseToASUS *= g_A5ToAsus;
-
-	// Now get the vector in terms of the base frame.
-	floorNormal = g_baseToASUS*floorNormal;
-
-
+	
 	// --- Get Rotation Error --- //
 	
 	// Ultimately we want to find a quaternion such that we can transform the
-	// floor normal so that it aligns with the base z axis.
-	tf::Vector3 baseZAxis(0, 0, 1);
-	tf::Vector3 cross = baseZAxis.cross(floorNormal);
+	// floor normal so that it aligns with the base z axis.  To do that we
+	// will find a quaternion that aligns the normal to the y-axis of the camera.
+	tf::Vector3 cameraYAxis(0, 1, 0);
+	if( floorNormal.getY() < 0.0 )
+		cameraYAxis.setY(-1.0);
+	
+	tf::Vector3 cross = cameraYAxis.cross(floorNormal);
 
 	// This will give us the rotation from the base's normal vector to the floor's normal
-	// from the camera's perspective.  We want to get 
+	// from the camera's perspective.
 	tf::Quaternion q( cross.getX(),
 					  cross.getY(),
 					  cross.getZ(),
-					  sqrt(floorNormal.length2()*baseZAxis.length2()) + baseZAxis.dot(floorNormal) );
+					  sqrt(floorNormal.length2()*cameraYAxis.length2()) + cameraYAxis.dot(floorNormal) );
 
 
 	// --- Now Apply It As A Correction --- //
 
-	tf::Transform g_Correction;
-	g_Correction.setIdentity();
-	g_Correction.setRotation(q);
+	g_AsusCorrection.setIdentity();
+	g_AsusCorrection.setRotation(q);
+	g_AsusCorrection = g_AsusCorrection.inverse();
 
-	// We need the inverse of this matrix so that we undo the rotation error from the floor normal to
-	// the base's coordinate frame.
-	g_A5ToAsus *= g_Correction.inverse();
-
-	
 	cameraCalibrated = true;
 }
 
@@ -429,15 +409,15 @@ int main( int argc, char** argv )
 
 	// --- Arm Interface object --- //
 	
-	std::cerr << "Creating arm interface." << std::endl;
+	std::cout << "Creating arm interface." << std::endl;
 	if( usingGazebo )
 	{
-		std::cerr << "\tUsing Gazebo interface" << std::endl;
+		std::cout << "\tUsing Gazebo interface" << std::endl;
 		pArmInterface = new cArmInterfaceGazebo(nh);
 	}
 	else
 	{
-		std::cerr << "\tUsing youBot interface" << std::endl;
+		std::cout << "\tUsing youBot interface" << std::endl;
 		pArmInterface = new cArmInterfaceYoubot(nh);
 	}
 
@@ -451,11 +431,13 @@ int main( int argc, char** argv )
 	// --- TF --- //
 	
 	listener = new tf::TransformListener();
+	std::cout << "Wait for 2 seconds to allow tfs to buffer" << std::endl;
+	ros::Duration(2).sleep();
 	
 
 	// --- Subscribers --- //
 	
-	std::cerr << "Creating subscribers." << std::endl;
+	std::cout << "Creating subscribers." << std::endl;
     blockPoseSub = nh.subscribe( "/block_pose", 1, block_callback );
 	odomSub = nh.subscribe( "/odom", 1, odom_callback );
 	moveBaseGoalStatusSub = nh.subscribe( "/move_base/status", 1, move_base_status_callback );
@@ -464,20 +446,25 @@ int main( int argc, char** argv )
 
 	// --- Initialization --- //
 
-	std::cerr << "Initializing matrices and other things." << std::endl;
+	std::cout << "Initializing matrices and other things." << std::endl;
 	initialize();
-	
-	std::cerr << "Waiting 5 seconds to allow everything to start up." << std::endl;
-	for( int i = 5; i > 0; --i )
+
+	if( usingGazebo )
 	{
-		std::cerr << i << std::endl;
-		ros::Duration(1).sleep();
+		// This is because sometimes when using Gazebo all of the extra stuff
+		// takes a while to start up.
+		std::cout << "Waiting 5 seconds to allow everything to start up." << std::endl;
+		for( int i = 5; i > 0; --i )
+		{
+			std::cout << i << std::endl;
+			ros::Duration(1).sleep();
+		}
 	}
 
 
 	// --- Begin --- //
 	
-	std::cerr << "Driving arm to camera position." << std::endl;
+	std::cout << "Driving arm to camera position." << std::endl;
 	std::vector<double> seedVals;
 	seedVals.push_back(seedCameraSearch[0]);
 	seedVals.push_back(seedCameraSearch[1]);
@@ -501,19 +488,35 @@ int main( int argc, char** argv )
 				// Drive the base next to the block.  Make sure we don't rotate
 				// based on the rotation matrix of the block itself.
 				tf::Transform goal = g_baseToBlock;
-				goal.getOrigin().setX( goal.getOrigin().getX() - 0.25 );
+				goal.getOrigin().setX( goal.getOrigin().getX() );
 				if( goal.getOrigin().getY() < 0.0 )
-				  goal.getOrigin().setY( goal.getOrigin().getY() + 0.25 );
+				{
+					pGraspingTransform = &g_startGraspLeft90Deg_05;
+					graspingSeedVals.clear();
+					for( std::size_t i = 0; i < 5; ++i )
+					{
+						graspingSeedVals.push_back(seedGraspLeft90Deg[i]);
+					}
+					goal.getOrigin().setY( goal.getOrigin().getY() + 0.35 );
+				}
 				else
-				  goal.getOrigin().setY( goal.getOrigin().getY() - 0.25 );
+				{
+					pGraspingTransform = &g_startGraspRight90Deg_05;
+					graspingSeedVals.clear();
+					for( std::size_t i = 0; i < 5; ++i )
+					{
+						graspingSeedVals.push_back(seedGraspRight90Deg[i]);
+					}
+					goal.getOrigin().setY( goal.getOrigin().getY() - 0.35 );
+				}
 
 				goal.setBasis( tf::Matrix3x3::getIdentity() );
 
 				moveRelativeToBaseLink(goal);
 				currentState = NavigatingToBlock;
-				std::cerr << "Exiting the WaitingForBlock state" << std::endl;
-				std::cerr << std::endl;
-				std::cerr << "Entering NavigatingToBlock state" << std::endl;
+				std::cout << "Exiting the WaitingForBlock state" << std::endl;
+				std::cout << std::endl;
+				std::cout << "Entering NavigatingToBlock state" << std::endl;
 			}
 			break;
 
@@ -523,90 +526,80 @@ int main( int argc, char** argv )
 			{
 				currentState = MovingArmToSearchPose;
 				navGoalStatus = 0;
-				std::cerr << "Reached navigation goal." << std::endl;
-				std::cerr << "Exiting NavigatingToBlock state" << std::endl;
+				std::cout << "Reached navigation goal." << std::endl;
+				std::cout << "Exiting NavigatingToBlock state" << std::endl;
 			}
 			break;
 
 			
 		case MovingArmToSearchPose:
 		{
-			std::cerr << std::endl;
-			std::cerr << "Entering MovingArmToSearchPose state" << std::endl;
-			std::cerr << "Moving arm to search pose." << std::endl;
-			seedVals.clear();
-			for( std::size_t i = 0; i < 5; ++i )
-			{
-				seedVals.push_back(seedGraspLeft90Deg[i]);
-			}
-			pArmInterface->PositionArm( g_startGraspLeft90Deg_05, seedVals );
+			std::cout << std::endl;
+			std::cout << "Entering MovingArmToSearchPose state" << std::endl;
+			std::cout << "Moving arm to search pose." << std::endl;
+			pArmInterface->PositionArm( *pGraspingTransform, graspingSeedVals );
 			currentState = AligningToBlock;
-			std::cerr << "Exiting MovingArmToSearchPose state" << std::endl;
+			std::cout << "Exiting MovingArmToSearchPose state" << std::endl;
 			break;
 		}
 
 		
 		case AligningToBlock:
 		{
-			std::cerr << std::endl;
-			std::cerr << "Entering AligningToBlock state" << std::endl;
+			std::cout << std::endl;
+			std::cout << "Entering AligningToBlock state" << std::endl;
 			currentState = GraspingBlock;
-			std::cerr << "Exiting AligningToBlock state" << std::endl;
+			std::cout << "Exiting AligningToBlock state" << std::endl;
 			break;
 		}
 
 		
 		case GraspingBlock:
 		{
-			std::cerr << std::endl;
-			std::cerr << "Entering GraspingBlock state" << std::endl;
-			std::cerr << "Waiting 5 seconds to allow arm to finish moving." << std::endl;
+			std::cout << std::endl;
+			std::cout << "Entering GraspingBlock state" << std::endl;
+			std::cout << "Waiting 5 seconds to allow arm to finish moving." << std::endl;
 			ros::Duration(5).sleep();
 
 			tf::Transform translate;
 			translate.setIdentity();
 			translate.getOrigin().setZ( translate.getOrigin().getZ() + 0.05 );
 
-			std::cerr << "Translating along search pose." << std::endl;
-			seedVals.clear();
-			for( std::size_t i = 0; i < 5; ++i )
-			{
-				seedVals.push_back(seedGraspLeft90Deg[i]);
-			}
-			pArmInterface->PositionArm( g_startGraspLeft90Deg_05 * translate, seedVals );
+			std::cout << "Translating along search pose." << std::endl;
+			pArmInterface->PositionArm( (*pGraspingTransform) * translate, graspingSeedVals );
 			ros::Duration(3.0).sleep();  // Allow the arm to translate so we see it.
 			currentState = PuttingArmInCarryPose;
-			std::cerr << "Exiting GraspingBlock state" << std::endl;
+			std::cout << "Exiting GraspingBlock state" << std::endl;
 			break;
 		}
 
 		
 		case PuttingArmInCarryPose:
 		{
-			std::cerr << std::endl;
-			std::cerr << "Entered PuttingArmInCarryPose state" << std::endl;
-			std::cerr << "Driving arm to carry pose." << std::endl;
+			std::cout << std::endl;
+			std::cout << "Entered PuttingArmInCarryPose state" << std::endl;
+			std::cout << "Driving arm to carry pose." << std::endl;
 			seedVals.clear();
 			for( std::size_t i = 0; i < 5; ++i )
 			{
 				seedVals.push_back(seedCameraSearch[i]);
 			}
 			pArmInterface->PositionArm( g_cameraSearch_05, seedVals );
-			std::cerr << "Waiting 3 seconds to allow arm to reach pose" << std::endl;
+			std::cout << "Waiting 3 seconds to allow arm to reach pose" << std::endl;
 			ros::Duration(3.0).sleep();  // Allow the arm to reach the pose.
 			currentState = InitiatingReturnToStart;
 			navGoalStatus = 0;
-			std::cerr << "Exiting PuttingArmInCarryPose state" << std::endl;
+			std::cout << "Exiting PuttingArmInCarryPose state" << std::endl;
 			break;
 		}
 
 
 		case InitiatingReturnToStart:
 		{
-			std::cerr << std::endl;
-			std::cerr << "Entering InitiatingReturnToStart state" << std::endl;
-			std::cerr << "navGoalStatus:  " << navGoalStatus << std::endl;
-			std::cerr << "Publishing goal and waiting for status to change" << std::endl;
+			std::cout << std::endl;
+			std::cout << "Entering InitiatingReturnToStart state" << std::endl;
+			std::cout << "navGoalStatus:  " << navGoalStatus << std::endl;
+			std::cout << "Publishing goal and waiting for status to change" << std::endl;
 
 			moveToAbsolutePosition(g_StartingPose_w);
 
@@ -616,9 +609,9 @@ int main( int argc, char** argv )
 			}
 
 			currentState = ReturningToStart;
-			std::cerr << "Exiting InitiatingReturnToStart" << std::endl;
-			std::cerr << std::endl;
-			std::cerr << "Entering ReturningToStart state" << std::endl;
+			std::cout << "Exiting InitiatingReturnToStart" << std::endl;
+			std::cout << std::endl;
+			std::cout << "Entering ReturningToStart state" << std::endl;
 
 			break;
 		}
@@ -629,9 +622,9 @@ int main( int argc, char** argv )
 			{
 				// When we have reached the goal, transition to the next state.
 				currentState = Finished;
-				std::cerr << "Exiting the ReturningToStart state" << std::endl;
-				std::cerr << std::endl;
-				std::cerr << "Finished!" << std::endl;
+				std::cout << "Exiting the ReturningToStart state" << std::endl;
+				std::cout << std::endl;
+				std::cout << "Finished!" << std::endl;
 			}
 			break;
 		}
