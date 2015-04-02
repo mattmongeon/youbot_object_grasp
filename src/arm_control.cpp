@@ -123,7 +123,7 @@ void initialize()
 	rot.setValue(0.0, -1.0, 0.0,
 				 1.0, 0.0, 0.0,
 				 0.0, 0.0, 1.0);
-	t.setValue(0.088, 0.0, 0.22);
+	t.setValue(0.088, 0.0, 0.022);
 		
 	g_A5ToAsus.setBasis(rot);
 	g_A5ToAsus.setOrigin(t);
@@ -214,7 +214,7 @@ tf::Transform getBaseToBlockTransform(const geometry_msgs::Pose& pose_ASUStoBloc
 	g *= g_A5ToAsus;
 
 	// Apply the calibration factor.
-	g *= g_AsusCorrection;
+	//g *= g_AsusCorrection;
 
 	// Now take it the rest of the way from base_link -> block.  The transform returned
 	// from the function is ASUS -> block.
@@ -264,6 +264,47 @@ void block_callback(const geometry_msgs::Pose& pose)
 	tf::Vector3 t = g_baseToBlock.getOrigin();
 	std::cout << "t = < " << t.getX() << ", " << t.getY() << ", " << t.getZ() << " >" << std::endl;
 
+	std::cout << std::endl;
+
+	std::cout << "Arm5 pose relative to base_link" << std::endl;
+	tf::StampedTransform g_baseToA5;
+	listener->lookupTransform("base_link", "arm_link_5", ros::Time(0), g_baseToA5);
+	rot = g_baseToA5.getBasis();
+	row = rot.getRow(0);
+	std::cout << "    | " << row.getX() << " " << row.getY() << " " << row.getZ() << " | " << std::endl;
+	row = rot.getRow(1);
+	std::cout << "R = | " << row.getX() << " " << row.getY() << " " << row.getZ() << " | " << std::endl;
+	row = rot.getRow(2);
+	std::cout << "    | " << row.getX() << " " << row.getY() << " " << row.getZ() << " | " << std::endl;
+	std::cout << std::endl;
+	t = g_baseToA5.getOrigin();
+	std::cout << "t = < " << t.getX() << ", " << t.getY() << ", " << t.getZ() << " >" << std::endl << std::endl;
+
+	std::cout << "ASUS pose relative to arm_link_5" << std::endl;
+	rot = g_A5ToAsus.getBasis();
+	row = rot.getRow(0);
+	std::cout << "    | " << row.getX() << " " << row.getY() << " " << row.getZ() << " | " << std::endl;
+	row = rot.getRow(1);
+	std::cout << "R = | " << row.getX() << " " << row.getY() << " " << row.getZ() << " | " << std::endl;
+	row = rot.getRow(2);
+	std::cout << "    | " << row.getX() << " " << row.getY() << " " << row.getZ() << " | " << std::endl;
+	std::cout << std::endl;
+	t = g_A5ToAsus.getOrigin();
+	std::cout << "t = < " << t.getX() << ", " << t.getY() << ", " << t.getZ() << " >" << std::endl << std::endl;
+
+	std::cout << "ASUS pose relative to base_link" << std::endl;
+	tf::Transform g = g_baseToA5 * g_A5ToAsus;
+	rot = g.getBasis();
+	row = rot.getRow(0);
+	std::cout << "    | " << row.getX() << " " << row.getY() << " " << row.getZ() << " | " << std::endl;
+	row = rot.getRow(1);
+	std::cout << "R = | " << row.getX() << " " << row.getY() << " " << row.getZ() << " | " << std::endl;
+	row = rot.getRow(2);
+	std::cout << "    | " << row.getX() << " " << row.getY() << " " << row.getZ() << " | " << std::endl;
+	std::cout << std::endl;
+	t = g.getOrigin();
+	std::cout << "t = < " << t.getX() << ", " << t.getY() << ", " << t.getZ() << " >" << std::endl << std::endl;
+	
 	blockFound = true;
 }
 
@@ -291,6 +332,7 @@ void moveToAbsolutePosition( const tf::Transform& g )
 	goalPose.pose.orientation.z = q.getZ();
 	goalPose.pose.orientation.w = q.getW();
 
+	std::cout << "t = < " << t.getX() << ", " << t.getY() << ", z >" << std::endl;
 	std::cout << "Publishing to /move_base_goal/simple" << std::endl;
 	moveBaseGoalPub.publish(goalPose);
 }
@@ -375,17 +417,11 @@ void floor_normal_callback( const geometry_msgs::Vector3& norm )
 	tf::Vector3 cameraYAxis(0, 1, 0);
 	if( floorNormal.getY() < 0.0 )
 		cameraYAxis.setY(-1.0);
+
+	tfScalar angle = cameraYAxis.angle(floorNormal);
+	tf::Vector3 rotAxis = cameraYAxis.cross(floorNormal);
+	tf::Quaternion q(rotAxis, angle);
 	
-	tf::Vector3 cross = cameraYAxis.cross(floorNormal);
-
-	// This will give us the rotation from the base's normal vector to the floor's normal
-	// from the camera's perspective.
-	tf::Quaternion q( cross.getX(),
-					  cross.getY(),
-					  cross.getZ(),
-					  sqrt(floorNormal.length2()*cameraYAxis.length2()) + cameraYAxis.dot(floorNormal) );
-
-
 	// --- Now Apply It As A Correction --- //
 
 	g_AsusCorrection.setIdentity();
@@ -491,23 +527,23 @@ int main( int argc, char** argv )
 				goal.getOrigin().setX( goal.getOrigin().getX() );
 				if( goal.getOrigin().getY() < 0.0 )
 				{
-					pGraspingTransform = &g_startGraspLeft90Deg_05;
-					graspingSeedVals.clear();
-					for( std::size_t i = 0; i < 5; ++i )
-					{
-						graspingSeedVals.push_back(seedGraspLeft90Deg[i]);
-					}
-					goal.getOrigin().setY( goal.getOrigin().getY() + 0.35 );
-				}
-				else
-				{
 					pGraspingTransform = &g_startGraspRight90Deg_05;
 					graspingSeedVals.clear();
 					for( std::size_t i = 0; i < 5; ++i )
 					{
 						graspingSeedVals.push_back(seedGraspRight90Deg[i]);
 					}
-					goal.getOrigin().setY( goal.getOrigin().getY() - 0.35 );
+					goal.getOrigin().setY( goal.getOrigin().getY() + 0.5 );
+				}
+				else
+				{
+					pGraspingTransform = &g_startGraspLeft90Deg_05;
+					graspingSeedVals.clear();
+					for( std::size_t i = 0; i < 5; ++i )
+					{
+						graspingSeedVals.push_back(seedGraspLeft90Deg[i]);
+					}
+					goal.getOrigin().setY( goal.getOrigin().getY() - 0.5 );
 				}
 
 				goal.setBasis( tf::Matrix3x3::getIdentity() );
