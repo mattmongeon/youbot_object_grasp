@@ -106,7 +106,7 @@ bool blockFound = false;
 tf::Transform* pGraspingTransform;
 std::vector<double> graspingSeedVals;
 
-tf::Transform g_baseToBlock;
+tf::Transform g_A0ToBlock;
 
 int navGoalStatus = 0;
 
@@ -202,25 +202,25 @@ tf::Transform getTransformFromPose(const geometry_msgs::Pose& pose)
 }
 
 
-tf::Transform getBaseToBlockTransform(const geometry_msgs::Pose& pose_ASUStoBlock)
+tf::Transform getArm0ToBlockTransform(const geometry_msgs::Pose& pose_ASUStoBlock)
 {
-	tf::StampedTransform g_baseToA5;
-	listener->lookupTransform("base_link", "arm_link_5", ros::Time(0), g_baseToA5);
+	tf::StampedTransform g_A0ToA5;
+	listener->lookupTransform("arm_link_0", "arm_link_5", ros::Time(0), g_A0ToA5);
 	
-	// Start off as base_link -> arm_link_5
-	tf::Transform g = g_baseToA5;
+	// Start off as arm_link_0 -> arm_link_5
+	tf::Transform g_ret = g_A0ToA5;
 
 	// Now take it from base_link -> ASUS frame
-	g *= g_A5ToAsus;
+	g_ret *= g_A5ToAsus;
 
 	// Apply the calibration factor.
-	//g *= g_AsusCorrection;
+	g_ret *= g_AsusCorrection;
 
-	// Now take it the rest of the way from base_link -> block.  The transform returned
+	// Now take it the rest of the way from arm_link_0 -> block.  The transform returned
 	// from the function is ASUS -> block.
-	g *= getTransformFromPose(pose_ASUStoBlock);
+	g_ret *= getTransformFromPose(pose_ASUStoBlock);
 	
-	return g;
+	return g_ret;
 }
 
 
@@ -250,10 +250,10 @@ void block_callback(const geometry_msgs::Pose& pose)
 	}
 
 	// Build a transformation matrix
-	g_baseToBlock = getBaseToBlockTransform(pose);
+	g_A0ToBlock = getArm0ToBlockTransform(pose);
 
-	tf::Matrix3x3 rot = g_baseToBlock.getBasis();
-	std::cout << "Block pose relative to base frame" << std::endl;
+	tf::Matrix3x3 rot = g_A0ToBlock.getBasis();
+	std::cout << "Block pose relative to arm_link_0" << std::endl;
 	tf::Vector3 row = rot.getRow(0);
 	std::cout << "    | " << row.getX() << " " << row.getY() << " " << row.getZ() << " | " << std::endl;
 	row = rot.getRow(1);
@@ -261,15 +261,15 @@ void block_callback(const geometry_msgs::Pose& pose)
 	row = rot.getRow(2);
 	std::cout << "    | " << row.getX() << " " << row.getY() << " " << row.getZ() << " | " << std::endl;
 	std::cout << std::endl;
-	tf::Vector3 t = g_baseToBlock.getOrigin();
+	tf::Vector3 t = g_A0ToBlock.getOrigin();
 	std::cout << "t = < " << t.getX() << ", " << t.getY() << ", " << t.getZ() << " >" << std::endl;
 
 	std::cout << std::endl;
 
-	std::cout << "Arm5 pose relative to base_link" << std::endl;
-	tf::StampedTransform g_baseToA5;
-	listener->lookupTransform("base_link", "arm_link_5", ros::Time(0), g_baseToA5);
-	rot = g_baseToA5.getBasis();
+	std::cout << "Arm5 pose relative to arm_link_o" << std::endl;
+	tf::StampedTransform g_A0ToA5;
+	listener->lookupTransform("arm_link_0", "arm_link_5", ros::Time(0), g_A0ToA5);
+	rot = g_A0ToA5.getBasis();
 	row = rot.getRow(0);
 	std::cout << "    | " << row.getX() << " " << row.getY() << " " << row.getZ() << " | " << std::endl;
 	row = rot.getRow(1);
@@ -277,7 +277,7 @@ void block_callback(const geometry_msgs::Pose& pose)
 	row = rot.getRow(2);
 	std::cout << "    | " << row.getX() << " " << row.getY() << " " << row.getZ() << " | " << std::endl;
 	std::cout << std::endl;
-	t = g_baseToA5.getOrigin();
+	t = g_A0ToA5.getOrigin();
 	std::cout << "t = < " << t.getX() << ", " << t.getY() << ", " << t.getZ() << " >" << std::endl << std::endl;
 
 	std::cout << "ASUS pose relative to arm_link_5" << std::endl;
@@ -292,8 +292,8 @@ void block_callback(const geometry_msgs::Pose& pose)
 	t = g_A5ToAsus.getOrigin();
 	std::cout << "t = < " << t.getX() << ", " << t.getY() << ", " << t.getZ() << " >" << std::endl << std::endl;
 
-	std::cout << "ASUS pose relative to base_link" << std::endl;
-	tf::Transform g = g_baseToA5 * g_A5ToAsus;
+	std::cout << "ASUS pose relative to arm_link_0" << std::endl;
+	tf::Transform g = g_A0ToA5 * g_A5ToAsus;
 	rot = g.getBasis();
 	row = rot.getRow(0);
 	std::cout << "    | " << row.getX() << " " << row.getY() << " " << row.getZ() << " | " << std::endl;
@@ -337,7 +337,7 @@ void moveToAbsolutePosition( const tf::Transform& g )
 	moveBaseGoalPub.publish(goalPose);
 }
 
-void moveRelativeToBaseLink( const tf::Transform& g )
+void moveRelativeToArmLink0( const tf::Transform& g )
 {
 	// At some point we might be using the map frame as our global frame.
 	// At other times we are simply using odom.  We will assume we are using
@@ -368,6 +368,11 @@ void moveRelativeToBaseLink( const tf::Transform& g )
 		}
 	}
 
+	// The currentOdom transformation keeps track of where the base is relative to the
+	// odom frame, so we need to add another transformation for base_link -> arm_link_0.
+	// tf::StampedTransform g_baseToA0;
+	// listener->lookupTransform("base_link", "arm_link_0", ros::Time(0), g_baseToA0);
+	// moveToAbsolutePosition( g_mapToOdom * currentOdom * g_baseToA0 * g );
 	moveToAbsolutePosition( g_mapToOdom * currentOdom * g );
 }
 
@@ -489,6 +494,7 @@ int main( int argc, char** argv )
 	{
 		// This is because sometimes when using Gazebo all of the extra stuff
 		// takes a while to start up.
+		
 		std::cout << "Waiting 5 seconds to allow everything to start up." << std::endl;
 		for( int i = 5; i > 0; --i )
 		{
@@ -521,9 +527,9 @@ int main( int argc, char** argv )
 				// First let's save our starting position so we can return to it.
 				g_StartingPose_w = currentOdom;
 				
-				// Drive the base next to the block.  Make sure we don't rotate
+				// Drive the youBot next to the block.  Make sure we don't rotate
 				// based on the rotation matrix of the block itself.
-				tf::Transform goal = g_baseToBlock;
+				tf::Transform goal = g_A0ToBlock;
 				goal.getOrigin().setX( goal.getOrigin().getX() );
 				if( goal.getOrigin().getY() < 0.0 )
 				{
@@ -548,7 +554,7 @@ int main( int argc, char** argv )
 
 				goal.setBasis( tf::Matrix3x3::getIdentity() );
 
-				moveRelativeToBaseLink(goal);
+				moveRelativeToArmLink0(goal);
 				currentState = NavigatingToBlock;
 				std::cout << "Exiting the WaitingForBlock state" << std::endl;
 				std::cout << std::endl;
