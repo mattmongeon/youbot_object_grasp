@@ -4,6 +4,7 @@
 #include <geometry_msgs/Pose.h>
 #include <geometry_msgs/Twist.h>
 #include <geometry_msgs/Vector3.h>
+#include <geometry_msgs/Point.h>
 #include <nav_msgs/Odometry.h>
 #include <actionlib_msgs/GoalStatusArray.h>
 #include <std_msgs/Float64.h>
@@ -23,6 +24,8 @@
 // --- Constants --- //
 
 const double PI = 3.14159265358979323846;
+const double gripperWidthAtGrasp = 0.005;
+const double gripperWidthOpen = 0.0099;
 
 
 // --- ROS Stuff --- //
@@ -37,6 +40,7 @@ ros::Subscriber blockPoseSub;
 ros::Subscriber odomSub;
 ros::Subscriber moveBaseGoalStatusSub;
 ros::Subscriber floorNormalSub;
+ros::Subscriber finalBlockLocSub;
 
 tf::TransformListener* listener;
 
@@ -105,11 +109,13 @@ bool cameraCalibrated = false;
 bool blockFound = false;
 tf::Transform* pGraspingTransform;
 std::vector<double> graspingSeedVals;
+bool graspingLeft = false;
 
 tf::Transform g_A0ToBlock;
+tf::Vector3 finalBlockLoc;
 
 int navGoalStatus = 0;
-
+int stopBaseCounter = 0;
 
 void initialize()
 {
@@ -436,6 +442,13 @@ void floor_normal_callback( const geometry_msgs::Vector3& norm )
 	cameraCalibrated = true;
 }
 
+void final_block_loc_callback( const geometry_msgs::Point& loc )
+{
+	finalBlockLoc.setX(loc.x);
+	finalBlockLoc.setY(loc.y);
+	finalBlockLoc.setZ(loc.z);
+}
+
 int main( int argc, char** argv )
 {
 	ros::init(argc, argv, "arm_control");
@@ -483,6 +496,7 @@ int main( int argc, char** argv )
 	odomSub = nh.subscribe( "/odom", 1, odom_callback );
 	moveBaseGoalStatusSub = nh.subscribe( "/move_base/status", 1, move_base_status_callback );
 	floorNormalSub = nh.subscribe( "/floor_normal", 1, floor_normal_callback );
+	finalBlockLocSub = nh.subscribe( "/rgb_seg/block_location", 1, final_block_loc_callback );
 
 
 	// --- Initialization --- //
@@ -533,23 +547,25 @@ int main( int argc, char** argv )
 				goal.getOrigin().setX( goal.getOrigin().getX() );
 				if( goal.getOrigin().getY() < 0.0 )
 				{
+					graspingLeft = false;
 					pGraspingTransform = &g_startGraspRight90Deg_05;
 					graspingSeedVals.clear();
 					for( std::size_t i = 0; i < 5; ++i )
 					{
 						graspingSeedVals.push_back(seedGraspRight90Deg[i]);
 					}
-					goal.getOrigin().setY( goal.getOrigin().getY() + 0.5 );
+					goal.getOrigin().setY( goal.getOrigin().getY() + 0.3 );
 				}
 				else
 				{
+					graspingLeft = true;
 					pGraspingTransform = &g_startGraspLeft90Deg_05;
 					graspingSeedVals.clear();
 					for( std::size_t i = 0; i < 5; ++i )
 					{
 						graspingSeedVals.push_back(seedGraspLeft90Deg[i]);
 					}
-					goal.getOrigin().setY( goal.getOrigin().getY() - 0.5 );
+					goal.getOrigin().setY( goal.getOrigin().getY() - 0.3 );
 				}
 
 				goal.setBasis( tf::Matrix3x3::getIdentity() );
@@ -579,7 +595,14 @@ int main( int argc, char** argv )
 			std::cout << std::endl;
 			std::cout << "Entering MovingArmToSearchPose state" << std::endl;
 			std::cout << "Moving arm to search pose." << std::endl;
-			pArmInterface->PositionArm( *pGraspingTransform, graspingSeedVals );
+
+			tf::Transform translate;
+			translate.setIdentity();
+			translate.getOrigin().setZ( translate.getOrigin().getZ() - 0.1 );
+			
+			pArmInterface->PositionArm( (*pGraspingTransform) * translate, graspingSeedVals );
+			ros::Duration(4).sleep();  // Wait for the arm to get to the position.
+
 			currentState = AligningToBlock;
 			std::cout << "Exiting MovingArmToSearchPose state" << std::endl;
 			break;
@@ -588,10 +611,53 @@ int main( int argc, char** argv )
 		
 		case AligningToBlock:
 		{
-			std::cout << std::endl;
-			std::cout << "Entering AligningToBlock state" << std::endl;
-			currentState = GraspingBlock;
-			std::cout << "Exiting AligningToBlock state" << std::endl;
+			tf::StampedTransform g_current05;
+			listener->lookupTransform("arm_link_0", "arm_link_5", ros::Time(0), g_current05);
+
+			tf::Transform translate;
+			translate.setIdentity();
+			
+			// Target is x: 355 +/- 10, y: 375 +/- 10
+			geometry_msgs::Twist vel;
+			double xVel = 0.0075;
+			double yVel = 0.0075;
+			if( finalBlockLoc.getX() > 350.0 + 5.0 )
+			{
+				// Move towards front of base when grasping right, opposite when left
+				vel.linear.x = graspingLeft ? -xVel : xVel;
+			}
+			else if( finalBlockLoc.getX() < 350.0 - 5.0 )
+			{
+				// Move towards rear of base when grasping right, opposite when left
+				vel.linear.x = graspingLeft ? xVel : -xVel;
+			}
+
+			if( finalBlockLoc.getY() > 415.0 + 10.0 )
+			{
+				// Move to the left when grasping right, opposite when left
+				vel.linear.y = graspingLeft ? yVel : -yVel;
+			}
+			else if( finalBlockLoc.getY() < 415.0 - 10.0 )
+			{
+				// Move to the right when grasping right, opposite when left
+				vel.linear.y = graspingLeft ? -yVel : yVel;
+			}
+
+			bool adjustmentMade = (vel.linear.x != 0) || (vel.linear.y != 0);
+			
+			// If no adjustments were made, this should be all zeros which should stop the base.
+			baseVelPub.publish(vel);				
+			
+			if( !adjustmentMade && (stopBaseCounter < 5) )
+			{
+				++stopBaseCounter;
+				currentState = GraspingBlock;
+				std::cout << "Exiting AligningToBlock state" << std::endl;
+			}
+			else
+			{
+				stopBaseCounter = 0;
+			}
 			break;
 		}
 
@@ -600,16 +666,50 @@ int main( int argc, char** argv )
 		{
 			std::cout << std::endl;
 			std::cout << "Entering GraspingBlock state" << std::endl;
-			std::cout << "Waiting 5 seconds to allow arm to finish moving." << std::endl;
-			ros::Duration(5).sleep();
+			std::cout << "Waiting 2 seconds to allow arm to finish moving." << std::endl;
+			ros::Duration(2).sleep();
 
+			std::cout << "Opening grippers" << std::endl;
+			pArmInterface->PublishGripperValues(gripperWidthOpen);
+			std::cout << "Waiting 4 seconds to allow grippers to open." << std::endl;
+			ros::Duration(4).sleep();
+
+			// --- Establish Goal Position --- //
+
+			/*
+			tf::Transform goal;
+			goal.setIdentity();
+			goal.getOrigin().setZ( goal.getOrigin().getZ() + 0.095 );
+			goal = (*pGraspingTransform) * goal;
+
+			tf::StampedTransform g_current05;
+			listener->lookupTransform("arm_link_0", "arm_link_5", ros::Time(0), g_current05);
+
+			if( g_current05.getOrigin().distance( goal.getOrigin() ) > 0.095 )
+			{
+			    // Translate along z-axis by 0.001
+			}
+			else
+			{
+			    // Close grippers
+				// Move to next state
+			}
+			*/
+			
 			tf::Transform translate;
 			translate.setIdentity();
-			translate.getOrigin().setZ( translate.getOrigin().getZ() + 0.05 );
+			translate.getOrigin().setZ( translate.getOrigin().getZ() + 0.095 );
 
 			std::cout << "Translating along search pose." << std::endl;
 			pArmInterface->PositionArm( (*pGraspingTransform) * translate, graspingSeedVals );
-			ros::Duration(3.0).sleep();  // Allow the arm to translate so we see it.
+			std::cout << "Waiting 3 seconds to allow arm to finish moving." << std::endl;
+			ros::Duration(3.0).sleep();
+
+			std::cout << "Closing grippers" << std::endl;
+			pArmInterface->PublishGripperValues(gripperWidthAtGrasp);
+			std::cout << "Waiting 4 seconds to allow grippers to close." << std::endl;
+			ros::Duration(4).sleep();
+			
 			currentState = PuttingArmInCarryPose;
 			std::cout << "Exiting GraspingBlock state" << std::endl;
 			break;
@@ -657,6 +757,7 @@ int main( int argc, char** argv )
 
 			break;
 		}
+
 		
 		case ReturningToStart:
 		{
@@ -684,3 +785,4 @@ int main( int argc, char** argv )
 	
 	return 0;
 }
+
