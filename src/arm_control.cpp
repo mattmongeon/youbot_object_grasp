@@ -236,17 +236,6 @@ void block_callback(const geometry_msgs::Pose& pose)
 		return;
 	
 	std::cout << "Received block pose!" << std::endl;
-	std::cout << "Quaternion:" << std::endl;
-	std::cout << "\tw: " << pose.orientation.w << std::endl;
-	std::cout << "\tx: " << pose.orientation.x << std::endl;
-	std::cout << "\ty: " << pose.orientation.y << std::endl;
-	std::cout << "\tz: " << pose.orientation.z << std::endl;
-	std::cout << std::endl;
-	std::cout << "Position:" << std::endl;
-	std::cout << "\tx: " << pose.position.x << std::endl;
-	std::cout << "\ty: " << pose.position.y << std::endl;
-	std::cout << "\tz: " << pose.position.z << std::endl;
-	std::cout << std::endl;
 
 	if( !cameraCalibrated )
 	{
@@ -272,45 +261,6 @@ void block_callback(const geometry_msgs::Pose& pose)
 
 	std::cout << std::endl;
 
-	std::cout << "Arm5 pose relative to arm_link_o" << std::endl;
-	tf::StampedTransform g_A0ToA5;
-	listener->lookupTransform("arm_link_0", "arm_link_5", ros::Time(0), g_A0ToA5);
-	rot = g_A0ToA5.getBasis();
-	row = rot.getRow(0);
-	std::cout << "    | " << row.getX() << " " << row.getY() << " " << row.getZ() << " | " << std::endl;
-	row = rot.getRow(1);
-	std::cout << "R = | " << row.getX() << " " << row.getY() << " " << row.getZ() << " | " << std::endl;
-	row = rot.getRow(2);
-	std::cout << "    | " << row.getX() << " " << row.getY() << " " << row.getZ() << " | " << std::endl;
-	std::cout << std::endl;
-	t = g_A0ToA5.getOrigin();
-	std::cout << "t = < " << t.getX() << ", " << t.getY() << ", " << t.getZ() << " >" << std::endl << std::endl;
-
-	std::cout << "ASUS pose relative to arm_link_5" << std::endl;
-	rot = g_A5ToAsus.getBasis();
-	row = rot.getRow(0);
-	std::cout << "    | " << row.getX() << " " << row.getY() << " " << row.getZ() << " | " << std::endl;
-	row = rot.getRow(1);
-	std::cout << "R = | " << row.getX() << " " << row.getY() << " " << row.getZ() << " | " << std::endl;
-	row = rot.getRow(2);
-	std::cout << "    | " << row.getX() << " " << row.getY() << " " << row.getZ() << " | " << std::endl;
-	std::cout << std::endl;
-	t = g_A5ToAsus.getOrigin();
-	std::cout << "t = < " << t.getX() << ", " << t.getY() << ", " << t.getZ() << " >" << std::endl << std::endl;
-
-	std::cout << "ASUS pose relative to arm_link_0" << std::endl;
-	tf::Transform g = g_A0ToA5 * g_A5ToAsus;
-	rot = g.getBasis();
-	row = rot.getRow(0);
-	std::cout << "    | " << row.getX() << " " << row.getY() << " " << row.getZ() << " | " << std::endl;
-	row = rot.getRow(1);
-	std::cout << "R = | " << row.getX() << " " << row.getY() << " " << row.getZ() << " | " << std::endl;
-	row = rot.getRow(2);
-	std::cout << "    | " << row.getX() << " " << row.getY() << " " << row.getZ() << " | " << std::endl;
-	std::cout << std::endl;
-	t = g.getOrigin();
-	std::cout << "t = < " << t.getX() << ", " << t.getY() << ", " << t.getZ() << " >" << std::endl << std::endl;
-	
 	blockFound = true;
 }
 
@@ -319,7 +269,6 @@ void moveToAbsolutePosition( const tf::Transform& g )
 	tf::Vector3 t = g.getOrigin();
 	tf::Quaternion q = g.getRotation();
 
-	std::cout << "Preparing to publish move goal." << std::endl;
 	geometry_msgs::PoseStamped goalPose;
 	goalPose.header.stamp = ros::Time::now();
 	goalPose.header.frame_id = globalFrameName;
@@ -338,8 +287,7 @@ void moveToAbsolutePosition( const tf::Transform& g )
 	goalPose.pose.orientation.z = q.getZ();
 	goalPose.pose.orientation.w = q.getW();
 
-	std::cout << "t = < " << t.getX() << ", " << t.getY() << ", z >" << std::endl;
-	std::cout << "Publishing to /move_base_goal/simple" << std::endl;
+	std::cout << "Publishing to /move_base_goal/simple:  t = < " << t.getX() << ", " << t.getY() << ", z >" << std::endl;
 	moveBaseGoalPub.publish(goalPose);
 }
 
@@ -412,13 +360,7 @@ void floor_normal_callback( const geometry_msgs::Vector3& norm )
 	// --- First Transform Everything To Base Frame --- //
 
 	tf::Vector3 floorNormal(norm.x, norm.y, norm.z);
-
-	std::cout << "Floor normal" << std::endl;
-	std::cout << "    | " << floorNormal.getX() << " |" << std::endl;
-	std::cout << "    | " << floorNormal.getY() << " |" << std::endl;
-	std::cout << "    | " << floorNormal.getZ() << " |" << std::endl;
-	std::cout << std::endl;
-
+	std::cout << "Received floor normal" << std::endl;
 	
 	// --- Get Rotation Error --- //
 	
@@ -519,7 +461,7 @@ int main( int argc, char** argv )
 
 
 	// --- Begin --- //
-	
+
 	std::cout << "Driving arm to camera position." << std::endl;
 	std::vector<double> seedVals;
 	seedVals.push_back(seedCameraSearch[0]);
@@ -647,9 +589,14 @@ int main( int argc, char** argv )
 			
 			// If no adjustments were made, this should be all zeros which should stop the base.
 			baseVelPub.publish(vel);				
-			
-			if( !adjustmentMade && (stopBaseCounter < 5) )
+
+			// This weird counter is here to force the base to stop.  Due to the face that things
+			// are happening asynchronously and the base might still be moving when we send this
+			// command, we are going to have a counter that makes sure we don't drift away from
+			// our target by accident while we are trying to stop.
+			if( !adjustmentMade && (stopBaseCounter < 10) )
 			{
+				// TODO:  Use a timer instead of just a simple counter.
 				++stopBaseCounter;
 				currentState = GraspingBlock;
 				std::cout << "Exiting AligningToBlock state" << std::endl;
@@ -658,6 +605,7 @@ int main( int argc, char** argv )
 			{
 				stopBaseCounter = 0;
 			}
+			
 			break;
 		}
 
@@ -679,13 +627,13 @@ int main( int argc, char** argv )
 			/*
 			tf::Transform goal;
 			goal.setIdentity();
-			goal.getOrigin().setZ( goal.getOrigin().getZ() + 0.095 );
+			goal.getOrigin().setZ( goal.getOrigin().getZ() + 0.094 );
 			goal = (*pGraspingTransform) * goal;
 
 			tf::StampedTransform g_current05;
 			listener->lookupTransform("arm_link_0", "arm_link_5", ros::Time(0), g_current05);
 
-			if( g_current05.getOrigin().distance( goal.getOrigin() ) > 0.095 )
+			if( g_current05.getOrigin().distance( goal.getOrigin() ) > 0.094 )
 			{
 			    // Translate along z-axis by 0.001
 			}
@@ -698,7 +646,7 @@ int main( int argc, char** argv )
 			
 			tf::Transform translate;
 			translate.setIdentity();
-			translate.getOrigin().setZ( translate.getOrigin().getZ() + 0.095 );
+			translate.getOrigin().setZ( translate.getOrigin().getZ() + 0.094 );
 
 			std::cout << "Translating along search pose." << std::endl;
 			pArmInterface->PositionArm( (*pGraspingTransform) * translate, graspingSeedVals );
@@ -771,7 +719,6 @@ int main( int argc, char** argv )
 			}
 			break;
 		}
-
 
 		default:
 			break;
