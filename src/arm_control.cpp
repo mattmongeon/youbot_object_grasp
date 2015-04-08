@@ -24,7 +24,7 @@
 // --- Constants --- //
 
 const double PI = 3.14159265358979323846;
-const double gripperWidthAtGrasp = 0.005;
+const double gripperWidthAtGrasp = 0.0035;
 const double gripperWidthOpen = 0.0099;
 
 
@@ -563,12 +563,12 @@ int main( int argc, char** argv )
 			geometry_msgs::Twist vel;
 			double xVel = 0.0075;
 			double yVel = 0.0075;
-			if( finalBlockLoc.getX() > 350.0 + 5.0 )
+			if( finalBlockLoc.getX() > 350.0 + 3.0 )
 			{
 				// Move towards front of base when grasping right, opposite when left
 				vel.linear.x = graspingLeft ? -xVel : xVel;
 			}
-			else if( finalBlockLoc.getX() < 350.0 - 5.0 )
+			else if( finalBlockLoc.getX() < 350.0 - 3.0 )
 			{
 				// Move towards rear of base when grasping right, opposite when left
 				vel.linear.x = graspingLeft ? xVel : -xVel;
@@ -668,6 +668,12 @@ int main( int argc, char** argv )
 		{
 			std::cout << std::endl;
 			std::cout << "Entered PuttingArmInCarryPose state" << std::endl;
+			std::cout << "Putting arm back into search pose" << std::endl;
+			pArmInterface->PositionArm( (*pGraspingTransform), graspingSeedVals );
+			std::cout << "Waiting 3 seconds to allow arm to finish moving." << std::endl;
+			ros::Duration(3.0).sleep();
+			
+			
 			std::cout << "Driving arm to carry pose." << std::endl;
 			seedVals.clear();
 			for( std::size_t i = 0; i < 5; ++i )
@@ -677,6 +683,7 @@ int main( int argc, char** argv )
 			pArmInterface->PositionArm( g_cameraSearch_05, seedVals );
 			std::cout << "Waiting 3 seconds to allow arm to reach pose" << std::endl;
 			ros::Duration(3.0).sleep();  // Allow the arm to reach the pose.
+
 			currentState = InitiatingReturnToStart;
 			navGoalStatus = 0;
 			std::cout << "Exiting PuttingArmInCarryPose state" << std::endl;
