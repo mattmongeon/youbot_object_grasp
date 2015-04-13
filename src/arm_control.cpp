@@ -24,7 +24,7 @@
 // --- Constants --- //
 
 const double PI = 3.14159265358979323846;
-const double gripperWidthAtGrasp = 0.0035;
+const double gripperWidthAtGrasp = 0.0025;
 const double gripperWidthOpen = 0.0099;
 
 
@@ -100,6 +100,10 @@ enum ProcessState
 	PuttingArmInCarryPose,
 	InitiatingReturnToStart,
 	ReturningToStart,
+	ReturnToPickupPoint,
+	PrepareForDrop,
+	DropBlock,
+	MoveToFinish,
 	Finished
 };
 
@@ -110,6 +114,7 @@ bool blockFound = false;
 tf::Transform* pGraspingTransform;
 std::vector<double> graspingSeedVals;
 bool graspingLeft = false;
+tf::Transform pickupGoal;
 
 tf::Transform g_A0ToBlock;
 tf::Vector3 finalBlockLoc;
@@ -485,9 +490,9 @@ int main( int argc, char** argv )
 				
 				// Drive the youBot next to the block.  Make sure we don't rotate
 				// based on the rotation matrix of the block itself.
-				tf::Transform goal = g_A0ToBlock;
-				goal.getOrigin().setX( goal.getOrigin().getX() );
-				if( goal.getOrigin().getY() < 0.0 )
+				pickupGoal = g_A0ToBlock;
+				pickupGoal.getOrigin().setX( pickupGoal.getOrigin().getX() );
+				if( pickupGoal.getOrigin().getY() < 0.0 )
 				{
 					graspingLeft = false;
 					pGraspingTransform = &g_startGraspRight90Deg_05;
@@ -496,7 +501,7 @@ int main( int argc, char** argv )
 					{
 						graspingSeedVals.push_back(seedGraspRight90Deg[i]);
 					}
-					goal.getOrigin().setY( goal.getOrigin().getY() + 0.3 );
+					pickupGoal.getOrigin().setY( pickupGoal.getOrigin().getY() + 0.3 );
 				}
 				else
 				{
@@ -507,12 +512,12 @@ int main( int argc, char** argv )
 					{
 						graspingSeedVals.push_back(seedGraspLeft90Deg[i]);
 					}
-					goal.getOrigin().setY( goal.getOrigin().getY() - 0.3 );
+					pickupGoal.getOrigin().setY( pickupGoal.getOrigin().getY() - 0.3 );
 				}
 
-				goal.setBasis( tf::Matrix3x3::getIdentity() );
+				pickupGoal.setBasis( tf::Matrix3x3::getIdentity() );
 
-				moveRelativeToArmLink0(goal);
+				moveRelativeToArmLink0(pickupGoal);
 				currentState = NavigatingToBlock;
 				std::cout << "Exiting the WaitingForBlock state" << std::endl;
 				std::cout << std::endl;
@@ -563,12 +568,12 @@ int main( int argc, char** argv )
 			geometry_msgs::Twist vel;
 			double xVel = 0.0075;
 			double yVel = 0.0075;
-			if( finalBlockLoc.getX() > 350.0 + 3.0 )
+			if( finalBlockLoc.getX() > 350.0 + 2.0 )
 			{
 				// Move towards front of base when grasping right, opposite when left
 				vel.linear.x = graspingLeft ? -xVel : xVel;
 			}
-			else if( finalBlockLoc.getX() < 350.0 - 3.0 )
+			else if( finalBlockLoc.getX() < 350.0 - 2.0 )
 			{
 				// Move towards rear of base when grasping right, opposite when left
 				vel.linear.x = graspingLeft ? xVel : -xVel;
@@ -700,6 +705,7 @@ int main( int argc, char** argv )
 
 			moveToAbsolutePosition(g_StartingPose_w);
 
+			// Wait for the nav status to change to indicate it has a new goal.
 			while( navGoalStatus == 3 )
 			{
 				ros::spinOnce();
@@ -718,14 +724,105 @@ int main( int argc, char** argv )
 		{
 			if( navGoalStatus == 3 )
 			{
+				moveRelativeToArmLink0(pickupGoal);
+
+				// Wait for the nav status to change to in
+				while( navGoalStatus == 3 )
+				{
+					ros::spinOnce();
+				}
+
 				// When we have reached the goal, transition to the next state.
-				currentState = Finished;
+				currentState = ReturnToPickupPoint;
+				// currentState = Finished;
 				std::cout << "Exiting the ReturningToStart state" << std::endl;
 				std::cout << std::endl;
-				std::cout << "Finished!" << std::endl;
 			}
 			break;
 		}
+
+		
+		case ReturnToPickupPoint:
+		{
+			if( navGoalStatus == 3 )
+			{
+				std::cout << "Exiting ReturnToPickupPoint state" << std::endl;
+				std::cout << "Entering PrepareForDrop" << std::endl << std::endl;
+				currentState = PrepareForDrop;
+			}
+			
+			break;
+		}
+
+			
+		case PrepareForDrop:
+		{
+			tf::Transform translate;
+			translate.setIdentity();
+			translate.getOrigin().setZ( translate.getOrigin().getZ() - 0.1 );
+			
+			pArmInterface->PositionArm( (*pGraspingTransform) * translate, graspingSeedVals );
+			ros::Duration(3).sleep();  // Wait for the arm to get to the position.
+
+			std::cout << "Exiting PrepareForDrop state" << std::endl;
+			std::cout << "Entering DropBlock state" << std::endl << std::endl;
+			currentState = DropBlock;
+			break;
+		}
+
+		
+		case DropBlock:
+		{
+			std::cout << "Opening grippers" << std::endl;
+			pArmInterface->PublishGripperValues(gripperWidthOpen);
+			std::cout << "Waiting 4 seconds to allow grippers to open." << std::endl;
+			ros::Duration(3).sleep();
+
+			std::cout << "Putting arm back into search pose" << std::endl;
+			pArmInterface->PositionArm( (*pGraspingTransform), graspingSeedVals );
+			std::cout << "Waiting 3 seconds to allow arm to finish moving." << std::endl;
+			ros::Duration(3.0).sleep();
+			
+			
+			std::cout << "Driving arm to carry pose." << std::endl;
+			seedVals.clear();
+			for( std::size_t i = 0; i < 5; ++i )
+			{
+				seedVals.push_back(seedCameraSearch[i]);
+			}
+			pArmInterface->PositionArm( g_cameraSearch_05, seedVals );
+			std::cout << "Waiting 3 seconds to allow arm to reach pose" << std::endl;
+			ros::Duration(3.0).sleep();  // Allow the arm to reach the pose.
+
+			currentState = MoveToFinish;
+			navGoalStatus = 0;
+			std::cout << "Exiting DropBlock state" << std::endl;
+			break;
+		}
+
+		
+		case MoveToFinish:
+		{
+			std::cout << std::endl;
+			std::cout << "Entering MoveToFinish state" << std::endl;
+			std::cout << "navGoalStatus:  " << navGoalStatus << std::endl;
+			std::cout << "Publishing goal and waiting for status to change" << std::endl;
+
+			moveToAbsolutePosition(g_StartingPose_w);
+
+			while( navGoalStatus == 3 )
+			{
+				ros::spinOnce();
+			}
+
+			currentState = Finished;
+			std::cout << "Exiting MoveToFinish" << std::endl;
+			std::cout << std::endl;
+			std::cout << "Entering Finished state" << std::endl;
+
+			break;
+		}
+		
 
 		default:
 			break;
