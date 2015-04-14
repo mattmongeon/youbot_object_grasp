@@ -627,28 +627,9 @@ int main( int argc, char** argv )
 			std::cout << "Waiting 4 seconds to allow grippers to open." << std::endl;
 			ros::Duration(4).sleep();
 
+
 			// --- Establish Goal Position --- //
 
-			/*
-			tf::Transform goal;
-			goal.setIdentity();
-			goal.getOrigin().setZ( goal.getOrigin().getZ() + 0.094 );
-			goal = (*pGraspingTransform) * goal;
-
-			tf::StampedTransform g_current05;
-			listener->lookupTransform("arm_link_0", "arm_link_5", ros::Time(0), g_current05);
-
-			if( g_current05.getOrigin().distance( goal.getOrigin() ) > 0.094 )
-			{
-			    // Translate along z-axis by 0.001
-			}
-			else
-			{
-			    // Close grippers
-				// Move to next state
-			}
-			*/
-			
 			tf::Transform translate;
 			translate.setIdentity();
 			translate.getOrigin().setZ( translate.getOrigin().getZ() + 0.094 );
@@ -757,11 +738,9 @@ int main( int argc, char** argv )
 			
 		case PrepareForDrop:
 		{
-			tf::Transform translate;
-			translate.setIdentity();
-			translate.getOrigin().setZ( translate.getOrigin().getZ() - 0.1 );
-			
-			pArmInterface->PositionArm( (*pGraspingTransform) * translate, graspingSeedVals );
+			std::cout << "Putting arm into drop pose." << std::endl;
+			pArmInterface->PositionArm( (*pGraspingTransform), graspingSeedVals );
+			std::cout << "Waiting 3 seconds to allow arm to finish moving." << std::endl;
 			ros::Duration(3).sleep();  // Wait for the arm to get to the position.
 
 			std::cout << "Exiting PrepareForDrop state" << std::endl;
@@ -775,14 +754,8 @@ int main( int argc, char** argv )
 		{
 			std::cout << "Opening grippers" << std::endl;
 			pArmInterface->PublishGripperValues(gripperWidthOpen);
-			std::cout << "Waiting 4 seconds to allow grippers to open." << std::endl;
-			ros::Duration(3).sleep();
-
-			std::cout << "Putting arm back into search pose" << std::endl;
-			pArmInterface->PositionArm( (*pGraspingTransform), graspingSeedVals );
-			std::cout << "Waiting 3 seconds to allow arm to finish moving." << std::endl;
-			ros::Duration(3.0).sleep();
-			
+			std::cout << "Waiting 2 seconds to allow grippers to open." << std::endl;
+			ros::Duration(2).sleep();			
 			
 			std::cout << "Driving arm to carry pose." << std::endl;
 			seedVals.clear();
