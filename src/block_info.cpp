@@ -81,51 +81,6 @@ tf::Transform cBlockInfo::GetTransformA5ToBlock() const
 	std::cout << std::endl;
 	
 
-	std::cout << "ASUS correction" << std::endl;
-	rot = mG_AsusCorrection.getBasis();
-	row = rot.getRow(0);
-	std::cout << "    | " << row.getX() << " " << row.getY() << " " << row.getZ() << " | " << std::endl;
-	row = rot.getRow(1);
-	std::cout << "R = | " << row.getX() << " " << row.getY() << " " << row.getZ() << " | " << std::endl;
-	row = rot.getRow(2);
-	std::cout << "    | " << row.getX() << " " << row.getY() << " " << row.getZ() << " | " << std::endl;
-	std::cout << std::endl;
-	t = mG_AsusCorrection.getOrigin();
-	std::cout << "t = < " << t.getX() << ", " << t.getY() << ", " << t.getZ() << " >" << std::endl;
-
-	std::cout << std::endl;
-
-
-	std::cout << "A5 to ASUS" << std::endl;
-	rot = mG_A5ToAsus.getBasis();
-	row = rot.getRow(0);
-	std::cout << "    | " << row.getX() << " " << row.getY() << " " << row.getZ() << " | " << std::endl;
-	row = rot.getRow(1);
-	std::cout << "R = | " << row.getX() << " " << row.getY() << " " << row.getZ() << " | " << std::endl;
-	row = rot.getRow(2);
-	std::cout << "    | " << row.getX() << " " << row.getY() << " " << row.getZ() << " | " << std::endl;
-	std::cout << std::endl;
-	t = mG_A5ToAsus.getOrigin();
-	std::cout << "t = < " << t.getX() << ", " << t.getY() << ", " << t.getZ() << " >" << std::endl;
-
-	std::cout << std::endl;
-
-
-	std::cout << "A5 to Block" << std::endl;
-	rot = (mG_A5ToAsus * mG_AsusCorrection * mG_AsusToBlock).getBasis();
-	row = rot.getRow(0);
-	std::cout << "    | " << row.getX() << " " << row.getY() << " " << row.getZ() << " | " << std::endl;
-	row = rot.getRow(1);
-	std::cout << "R = | " << row.getX() << " " << row.getY() << " " << row.getZ() << " | " << std::endl;
-	row = rot.getRow(2);
-	std::cout << "    | " << row.getX() << " " << row.getY() << " " << row.getZ() << " | " << std::endl;
-	std::cout << std::endl;
-	t = (mG_A5ToAsus * mG_AsusCorrection * mG_AsusToBlock).getOrigin();
-	std::cout << "t = < " << t.getX() << ", " << t.getY() << ", " << t.getZ() << " >" << std::endl;
-
-	std::cout << std::endl;
-	
-	
 	return mG_A5ToAsus * mG_AsusCorrection * mG_AsusToBlock;
 }
 
