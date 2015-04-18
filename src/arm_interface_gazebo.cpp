@@ -6,8 +6,8 @@
 //  Construction / Destruction
 ////////////////////////////////////////////////////////////////////////////////
 
-cArmInterfaceGazebo::cArmInterfaceGazebo(ros::NodeHandle& nh)
-	: cArmInterface()
+cArmInterfaceGazebo::cArmInterfaceGazebo(const tf::Transform& g_arm0_to_base_link, ros::NodeHandle& nh)
+	: cArmInterface(g_arm0_to_base_link)
 {
 	mArmJoint1Pub = nh.advertise<std_msgs::Float64>( "/youbot/arm_joint_1_position_controller/command", 1 );
 	mArmJoint2Pub = nh.advertise<std_msgs::Float64>( "/youbot/arm_joint_2_position_controller/command", 1 );
@@ -53,6 +53,8 @@ void cArmInterfaceGazebo::PublishJointValues(const std::vector<double>& values)
 	std::cerr << std::endl;
 }
 
+////////////////////////////////////////////////////////////////////////////////
+//  Helper Functions
 ////////////////////////////////////////////////////////////////////////////////
 
 void cArmInterfaceGazebo::PublishGripperValues(double width)

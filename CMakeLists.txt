@@ -113,7 +113,9 @@ add_executable(arm_control
   src/arm_control.cpp
   src/arm_interface.cpp
   src/arm_interface_gazebo.cpp
-  src/arm_interface_youbot.cpp)
+  src/arm_interface_youbot.cpp
+  src/base_control.cpp
+  src/block_info.cpp)
 add_executable(odom_tf_pub src/odom_tf_pub.cpp)
 
 ## Add cmake target dependencies of the executable/library

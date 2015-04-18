@@ -8,8 +8,8 @@
 //  Construction / Destruction
 ////////////////////////////////////////////////////////////////////////////////
 
-cArmInterfaceYoubot::cArmInterfaceYoubot(ros::NodeHandle& nh)
-	: cArmInterface()
+cArmInterfaceYoubot::cArmInterfaceYoubot(const tf::Transform& g_arm0_to_base_link, ros::NodeHandle& nh)
+	: cArmInterface(g_arm0_to_base_link)
 {
 	mArmJointsPub = nh.advertise<brics_actuator::JointPositions>("/arm_1/arm_controller/position_command", 1);
 	mGripperPub = nh.advertise<brics_actuator::JointPositions>("/arm_1/gripper_controller/position_command", 1);
@@ -38,6 +38,8 @@ void cArmInterfaceYoubot::PublishJointValues(const std::vector<double>& values)
 	mArmJointsPub.publish(pos);
 }
 
+////////////////////////////////////////////////////////////////////////////////
+//  Helper Functions
 ////////////////////////////////////////////////////////////////////////////////
 
 void cArmInterfaceYoubot::PublishGripperValues(double width)

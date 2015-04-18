@@ -12,7 +12,7 @@ public:
 	//-----------------------------  CONSTRUCTION  -----------------------------//
 	//--------------------------------------------------------------------------//
 
-	cArmInterfaceGazebo(ros::NodeHandle& nh);
+	cArmInterfaceGazebo(const tf::Transform& g_arm0_to_base_link, ros::NodeHandle& nh);
 	
 
 	//--------------------------------------------------------------------------//
@@ -26,12 +26,20 @@ public:
 	//          to be in the order from arm_joint_0 to arm_joint_5.
 	virtual void PublishJointValues(const std::vector<double>& values);
 
+
+protected:
+
+	//--------------------------------------------------------------------------//
+	//---------------------------  HELPER FUNCTIONS  ---------------------------//
+	//--------------------------------------------------------------------------//
+	
 	// Publishes gripper position values to the robot.
 	//
 	// Params:
 	// width - the width of each finger.
 	virtual void PublishGripperValues(double width);
 
+	
 private:
 
 	ros::Publisher mArmJoint1Pub;
