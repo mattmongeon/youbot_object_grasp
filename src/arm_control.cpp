@@ -35,9 +35,9 @@ enum ProcessState
 	PuttingArmInCarryPose,
 	InitiatingReturnToStart,
 	ReturningToStart,
-	ReturnToPickupPoint,
 	PrepareForDrop,
 	DropBlock,
+	ReturnToPickupPoint,
 	MoveToFinish,
 	Finished
 };
@@ -343,31 +343,15 @@ int main( int argc, char** argv )
 		{
 			if( !pBaseController->MovingToMoveBaseGoal() )
 			{
-				// We have reached our starting position.  Now go back to the
-				// pick up point so we can put the block back again.
-				pBaseController->MoveRelativeToArmLink0( pickupGoal );
-
-				currentState = ReturnToPickupPoint;
+				currentState = PrepareForDrop;
 				std::cout << "Exiting the ReturningToStart state" << std::endl;
+				std::cout << "Entering PrepareForDrop state" << std::endl;
 				std::cout << std::endl;
 			}
 			break;
 		}
 
 		
-		case ReturnToPickupPoint:
-		{
-			if( !pBaseController->MovingToMoveBaseGoal() )
-			{
-				std::cout << "Exiting ReturnToPickupPoint state" << std::endl;
-				std::cout << "Entering PrepareForDrop" << std::endl << std::endl;
-				currentState = PrepareForDrop;
-			}
-			
-			break;
-		}
-
-			
 		case PrepareForDrop:
 		{
 			std::cout << "Putting arm into drop pose." << std::endl;
@@ -406,35 +390,37 @@ int main( int argc, char** argv )
 			{
 				pArmInterface->GoToRightAlignPose();
 			}
+			ros::Duration(2).sleep();			
 			
 			std::cout << "Driving arm to carry pose." << std::endl;
 			pArmInterface->GoToCameraSearchPose();
 			ros::Duration(2.0).sleep();  // Allow the arm to reach the pose.
-			
-			std::cout << "Waiting 3 seconds to allow arm to reach pose" << std::endl;
-			ros::Duration(3.0).sleep();  // Allow the arm to reach the pose.
 
-			std::cout << "Publishing nav goal to go back to the starting position" << std::endl;		
-			pBaseController->MoveToWorldPosition(g_StartingPose_w);
+			pArmInterface->CloseGrippers();
+			ros::Duration(1.0).sleep();  // Allow the arm to reach the pose.
+
+			std::cout << "Publishing nav goal to go back to the pickup location" << std::endl;
+			tf::Transform rotate;
+			rotate.setIdentity();
+			rotate.getBasis().setRPY(0, 0, 3.14);
+			pBaseController->MoveRelativeToArmLink0( pickupGoal * rotate );
 
 			currentState = MoveToFinish;
 			std::cout << "Exiting DropBlock state" << std::endl;
-			std::cout << "Entering MoveToFinish state" << std::endl;
+			std::cout << "Entering ReturnToPickupPoint state" << std::endl;
 			std::cout << std::endl;
 			break;
 		}
 
 		
-		case MoveToFinish:
+		case ReturnToPickupPoint:
 		{
 			if( !pBaseController->MovingToMoveBaseGoal() )
 			{
+				std::cout << "Exiting ReturnToPickupPoint state" << std::endl;
 				currentState = Finished;
-				std::cout << "Exiting MoveToFinish" << std::endl;
-				std::cout << std::endl;
-				std::cout << "Entering Finished state" << std::endl;
 			}
-
+			
 			break;
 		}
 		
