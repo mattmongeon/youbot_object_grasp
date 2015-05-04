@@ -44,7 +44,7 @@ export ROS_MASTER_URI=http://ubuntu.local:11311/
 export ROS_HOSTNAME=<mycomputername>.local
 ```
 
-This terminal will be used for launching the code that will be running on the development computer.  The first ```export``` call sets up this terminal to communicate with the roscore running on the youBot.  In the second terminal, ssh to the youBot and use this terminal to launch the youBot's ROS sessions.
+This terminal will be used for launching the code that will be running on the development computer.  The first ```export``` call sets up this terminal to communicate with the roscore running on the youBot.  Open a second terminal and ssh to the youBot.  This terminal will be used to launch the youBot's ROS sessions.
 
 Next set up the development computer's launch files to expect to run with the youBot.  Open test.launch in youbot_object_grasp and find the line
 
